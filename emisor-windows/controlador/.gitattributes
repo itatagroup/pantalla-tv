@@ -1,0 +1,5 @@
+# Archivos del controlador tal cual: sus huellas están en SHA256SUMS.txt.
+MttVDD.inf -text
+MttVDD.dll binary
+mttvdd.cat binary
+SHA256SUMS.txt -text

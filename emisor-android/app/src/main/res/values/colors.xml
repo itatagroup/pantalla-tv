@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Paleta grafito oliva (tema oscuro). -->
+  <color name="fondo">#1D2019</color>
+  <color name="tarjeta">#2A2E24</color>
+  <color name="tarjeta_foco">#3B4132</color>
+  <color name="acento">#B5D67A</color>
+  <color name="sobre_acento">#1D2019</color>
+  <color name="texto">#F2F4EC</color>
+  <color name="texto_suave">#A9B09B</color>
+  <color name="peligro">#E58A9D</color>
+</resources>

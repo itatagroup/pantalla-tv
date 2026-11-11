@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Prototipo de la captura propia, hoy herramienta de medición. No forma parte
+       del instalador. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>CapturaPrueba</AssemblyName>
+    <RootNamespace>PantallaTv.Captura.Prueba</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- El emisor es de WinForms; la fuente de 60 fps también usa una ventana. -->
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PantallaTv.Captura.Prueba.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Desde N2 la captura, la conversión y el codificador de Media Foundation viven en el emisor
+         (PantallaTv.Emisor/Nativa/): el prototipo los usa de ahí y conserva solo lo que es de medir
+         (libavcodec, el procesador de vídeo, el medidor y la fuente de 60 fps). -->
+    <ProjectReference Include="..\PantallaTv.Emisor\PantallaTv.Emisor.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />
+  </ItemGroup>
+
+</Project>

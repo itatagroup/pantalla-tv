@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cl.itatagroup.pantalla.emisor">
+  <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="29"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <!-- Solo para capturar el sonido que reproduce el teléfono; se pide al activar «Enviar sonido». -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+  <uses-feature android:name="android.software.leanback" android:required="false"/>
+  <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+  <application android:label="@string/app_name" android:icon="@drawable/icono" android:banner="@drawable/icono" android:allowBackup="false" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name=".Principal" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="stateHidden">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+        <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <service android:name=".ServicioEmision" android:exported="false" android:foregroundServiceType="mediaProjection"/>
+  </application>
+</manifest>

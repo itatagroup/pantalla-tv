@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícono de la app: un televisor recibiendo una señal, en la paleta oliva. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp" android:height="96dp"
+    android:viewportWidth="96" android:viewportHeight="96">
+  <path android:fillColor="#3F6212" android:pathData="M16,0h64a16,16 0,0 1,16 16v64a16,16 0,0 1,-16 16h-64a16,16 0,0 1,-16 -16v-64a16,16 0,0 1,16 -16z"/>
+  <path android:fillColor="#ECEDE6" android:pathData="M22,26h52a4,4 0,0 1,4 4v30a4,4 0,0 1,-4 4h-52a4,4 0,0 1,-4 -4v-30a4,4 0,0 1,4 -4z"/>
+  <path android:fillColor="#22251E" android:pathData="M24,31h48v28h-48z"/>
+  <path android:fillColor="#ECEDE6" android:pathData="M36,70h24v4h-24z"/>
+  <path android:fillColor="#B5D67A" android:pathData="M42,37l14,8l-14,8z"/>
+</vector>

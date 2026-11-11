@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>PantallaTv</AssemblyName>
+    <Version>0.7.1</Version>
+    <Product>Pantalla TV</Product>
+    <Company>Itatagroup</Company>
+    <Description>Ver y oír el PC en la tele</Description>
+    <ApplicationIcon>pantalla.ico</ApplicationIcon>
+    <RootNamespace>PantallaTv.Emisor</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ForceDesignerDpiUnaware>true</ForceDesignerDpiUnaware>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PantallaTv.Emisor.Tests" />
+    <!-- El prototipo de N1 quedó como herramienta de medición que usa las clases de Nativa/. -->
+    <InternalsVisibleTo Include="CapturaPrueba" />
+  </ItemGroup>
+
+  <!-- El controlador del monitor virtual va dentro del ejecutable (ver ../controlador/LEEME.md). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\controlador\MttVDD.inf" LogicalName="controlador/MttVDD.inf" />
+    <EmbeddedResource Include="..\controlador\MttVDD.dll" LogicalName="controlador/MttVDD.dll" />
+    <EmbeddedResource Include="..\controlador\mttvdd.cat" LogicalName="controlador/mttvdd.cat" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <!-- Tubería nativa (captura, conversión y H.264 de Media Foundation dentro del proceso). MIT. -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
+  </ItemGroup>
+
+</Project>

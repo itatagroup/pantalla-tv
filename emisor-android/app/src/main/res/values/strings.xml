@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Enviar a Pantalla</string>
+  <string name="titulo">Enviar a Pantalla</string>
+  <string name="bajada">Muestra lo que hay en este equipo en una tele con la app «Pantalla» abierta.</string>
+  <string name="teles">Teles encontradas</string>
+  <string name="buscando">Buscando… Abre la app «Pantalla» en la tele.</string>
+  <string name="ip_etiqueta">O escribe la dirección IP de la tele</string>
+  <string name="ip_ejemplo">10.0.0.20</string>
+  <string name="opciones">Opciones</string>
+  <string name="calidad">Calidad: %1$s</string>
+  <string name="fluidez">Fluidez: %1$d cuadros por segundo</string>
+  <string name="retardo">Retardo: %1$s</string>
+  <string name="retardo_ninguno">sin retardo</string>
+  <string name="sonido_si">Sonido: sí</string>
+  <string name="sonido_no">Sonido: no</string>
+  <string name="transmitir">Transmitir</string>
+  <string name="transmitir_a">Transmitir a %1$s</string>
+  <string name="detener">Detener</string>
+  <string name="sin_transmitir">Sin transmitir</string>
+  <string name="falta_ip">Elige una tele o escribe su dirección IP.</string>
+  <string name="ip_invalida">Esa no es una dirección IP válida.</string>
+  <string name="sin_permiso_pantalla">No diste permiso para capturar la pantalla.</string>
+  <string name="sin_permiso_sonido">Sin permiso de sonido: se transmite solo la imagen.</string>
+  <string name="canal">Transmisión en curso</string>
+  <string name="notificacion_titulo">Enviando la pantalla a la tele</string>
+  <string name="nota_sonido">El sonido solo incluye las apps que permiten capturarlo (la mayoría de los vídeos y juegos; no las llamadas) y sigue sonando también en este equipo.</string>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Pantalla</string>
+  <string name="esperando">Esperando transmisión</string>
+  <string name="esperando_detalle">En el PC elige «%1$s» (%2$s)</string>
+  <string name="sin_red">Sin conexión a la red</string>
+  <string name="retardo_ninguno">sin retardo (mínima latencia)</string>
+  <string name="retardo_linea">Retardo: %1$s · OK en el control lo cambia</string>
+  <string name="retardo_aviso">Retardo: %1$s</string>
+</resources>

@@ -1,0 +1,13 @@
+# Compilaciones
+out/
+bin/
+obj/
+dist/
+.vs/
+node_modules/
+
+# Claves de firma y paquetes: nunca al repositorio
+keystore/
+*.apk
+*.jks
+*.idsig
