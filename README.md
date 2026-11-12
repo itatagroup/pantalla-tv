@@ -102,6 +102,11 @@ reintentar aunque tenga activado «Reconectar». Si el teléfono que transmite s
    formas»**. Puedes comprobar la descarga antes (ver `docs/verificar.md`). Queda un ícono junto al reloj: clic
    derecho › *Transmitir a …*. La casilla «Instalar el monitor virtual» (marcada por defecto) pide permiso de
    administrador e instala el controlador Virtual-Display-Driver incluido; al desinstalar se pregunta si quitarlo.
+   En «Avanzado» se puede instalar, reinstalar o quitar el monitor virtual en cualquier momento y elegir su
+   tamaño (en automático, el de la tele). La primera vez Windows pregunta si Pantalla TV puede usar la red: marca
+   **«Redes privadas»**. Es para ver las teles de tu red (anuncios por UDP 5601); el programa no recibe nada de
+   internet. Si la red de tu casa figura como **pública**, el firewall tapa las teles: el programa lo avisa con un
+   botón a Configuración › Red (cámbiala a privada) o puedes escribir la IP de la tele.
    Si algo no funciona: clic derecho › *Diagnóstico para enviar…* (o `PantallaTv.exe --diagnostico`). El informe
    incluye los errores registrados con su detalle y una prueba del monitor virtual (lo conecta unos segundos, lo
    captura y lo vuelve a quitar): mándalo en un issue de GitHub.

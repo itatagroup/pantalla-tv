@@ -90,6 +90,10 @@ internal static class Diagnostico
         catch (Exception e) when (e is not OutOfMemoryException) { L($"sin dispositivo de sonido ({e.Message})"); }
         L();
 
+        L("== Red");
+        L(Red.Describir());
+        L();
+
         L("== Errores registrados (los últimos 30, con su detalle)");
         var errores = Registro.Errores();
         if (errores.Count == 0) L("ninguno");

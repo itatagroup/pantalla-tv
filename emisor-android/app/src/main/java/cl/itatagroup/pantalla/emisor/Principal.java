@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,6 +15,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -29,6 +31,7 @@ import java.util.List;
 public class Principal extends Activity {
     private static final int PEDIR_PANTALLA = 1;
     private static final int PEDIR_SONIDO = 2;
+    private static final int PEDIR_AVISOS = 3;
     private static final String PREFS = "emisor";
 
     /** Lado mayor de la imagen enviada, y la tasa que le corresponde a 30 fps (a 60 se sube un 50 %). */
@@ -76,6 +79,11 @@ public class Principal extends Activity {
     protected void onCreate(Bundle guardado) {
         super.onCreate(guardado);
         setContentView(R.layout.activity_principal);
+        respetarBarras();
+        // Android 13+: sin este permiso no se ve el aviso de «Transmitiendo» (con su botón Detener).
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, PEDIR_AVISOS);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         calidad = acotar(prefs.getInt("calidad", 0), LADOS.length);
         fluidez = acotar(prefs.getInt("fluidez", 0), FPS.length);
@@ -241,6 +249,21 @@ public class Principal extends Activity {
         if (resultados.length == 0 || resultados[0] != PackageManager.PERMISSION_GRANTED)
             Toast.makeText(this, R.string.sin_permiso_sonido, Toast.LENGTH_LONG).show();
         pedirPantalla(); // con o sin sonido, se transmite
+    }
+
+    /**
+     * Android 15 dibuja la app detrás de las barras del sistema (y del teclado): se deja ese margen para que nada quede
+     * tapado. Antes de la 15 el sistema ya lo hace solo.
+     */
+    private void respetarBarras() {
+        if (Build.VERSION.SDK_INT < 35) return;
+        View raiz = ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0);
+        raiz.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets m = insets.getInsets(WindowInsets.Type.systemBars()
+                    | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+            v.setPadding(m.left, m.top, m.right, m.bottom);
+            return insets;
+        });
     }
 
     /** Android muestra su propio aviso («¿empezar a grabar o transmitir?»); la respuesta llega a onActivityResult. */

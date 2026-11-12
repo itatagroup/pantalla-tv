@@ -82,8 +82,8 @@ const java = jdkBin("java");
 const jar = jdkBin("jar");
 
 // --- versión ---
-// minSdk y targetSdk son opcionales en version.json (por defecto 21 y 29).
-const { versionCode, versionName, nombre = "app", minSdk = 21, targetSdk = 29 } = JSON.parse(readFileSync(join(root, "version.json"), "utf8"));
+// minSdk y targetSdk son opcionales en version.json (por defecto 21 y 35).
+const { versionCode, versionName, nombre = "app", minSdk = 21, targetSdk = 35 } = JSON.parse(readFileSync(join(root, "version.json"), "utf8"));
 
 // --- firma ---
 const keystore = process.env.APP_KEYSTORE ?? join(root, "keystore", `${nombre}.jks`);

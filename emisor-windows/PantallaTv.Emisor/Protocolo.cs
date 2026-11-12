@@ -5,6 +5,18 @@ using System.Text;
 namespace PantallaTv.Emisor;
 
 /// <summary>Un receptor visto en la red (la TV Box con «Pantalla» abierta).</summary>
+/// <summary>
+/// La pantalla que informa un receptor (desde la 0.8.0, en el aviso «PANTALLA-TV-PANTALLA»): su modo real y qué es.
+/// </summary>
+/// <param name="Tipo">«tv», «tableta» o «telefono».</param>
+internal sealed record PantallaTele(int Ancho, int Alto, int Hz, string Tipo)
+{
+    /// <summary>El mismo tamaño en horizontal: el monitor virtual siempre es horizontal.</summary>
+    public (int Ancho, int Alto) Horizontal => (Math.Max(Ancho, Alto), Math.Min(Ancho, Alto));
+
+    public override string ToString() => $"{Ancho}×{Alto} a {Hz} Hz";
+}
+
 internal sealed record Receptor(string Nombre, IPAddress Direccion, int Puerto)
 {
     public override string ToString() => $"{Nombre} ({Direccion})";
@@ -94,6 +106,21 @@ internal static class Protocolo
     }
 
     /// <summary>Interpreta «PANTALLA-TV 1 nombre con espacios 5600». Devuelve null si no es un anuncio válido.</summary>
+    /// <summary>
+    /// «PANTALLA-TV-PANTALLA 1 puerto ancho alto hz tipo»: la pantalla del receptor, en un aviso aparte del de su nombre
+    /// (los emisores anteriores leerían el último dato del primero como puerto). Null si no es eso o trae valores raros.
+    /// </summary>
+    public static (int Puerto, PantallaTele Pantalla)? InterpretarPantalla(string texto)
+    {
+        var p = texto.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (p.Length < 7 || p[0] != "PANTALLA-TV-PANTALLA" || p[1] != Version.ToString()) return null;
+        if (!int.TryParse(p[2], out var puerto) || puerto is < 1 or > 65535) return null;
+        if (!int.TryParse(p[3], out var ancho) || !int.TryParse(p[4], out var alto) || !int.TryParse(p[5], out var hz)) return null;
+        // Lo que viene de la red se acota: nada de pantallas de 0 o de 100.000 píxeles.
+        if (ancho is < 320 or > 16384 || alto is < 240 or > 16384 || hz is < 10 or > 480) return null;
+        return (puerto, new PantallaTele(ancho, alto, hz, p[6] is "tv" or "tableta" or "telefono" ? p[6] : "tv"));
+    }
+
     public static Receptor? InterpretarAnuncio(string texto, IPAddress origen)
     {
         var p = texto.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);

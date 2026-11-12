@@ -16,6 +16,11 @@ internal sealed class Ajustes
     public string? MonitorNombre { get; set; }
     /// <summary>Forma de capturar elegida a mano (una de <see cref="Tuberias.Todas"/>); null = automática (la nativa y, si falla, ffmpeg).</summary>
     public string? Tuberia { get; set; }
+    /// <summary>
+    /// Modo del monitor virtual elegido a mano, «1920x1080@60». Null: automático, según la pantalla que informa la tele
+    /// (receptor 0.8.0 o posterior) o, si no informa, 1080p a 60 Hz.
+    /// </summary>
+    public string? ModoMonitorVirtual { get; set; }
     /// <summary>Si se corta la conexión, volver a intentarlo solo hasta que el usuario detenga.</summary>
     public bool Reconectar { get; set; } = true;
     /// <summary>Ya se avisó una vez que cerrar la ventana deja el programa en la bandeja.</summary>

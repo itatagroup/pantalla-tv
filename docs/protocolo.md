@@ -7,8 +7,15 @@ en M1–M3; cada ajuste se anota aquí.
 
 - El receptor, mientras está abierto, manda cada 2 s un datagrama **UDP broadcast** al puerto
   **5601**: `PANTALLA-TV 1 <nombre> <puerto>` (texto UTF-8, `<puerto>` = 5600).
+- Desde el receptor 0.8.0 manda también, en un datagrama aparte, su pantalla:
+  `PANTALLA-TV-PANTALLA 1 <puerto> <ancho> <alto> <hz> <tipo>` (`<tipo>`: `tv`, `tableta` o `telefono`; el modo
+  físico de la pantalla, sin girar). Va aparte porque los emisores anteriores leen el último dato del primer aviso
+  como puerto. El emisor de Windows (0.11.0+) lo usa para dar al monitor virtual el tamaño y la frecuencia de la
+  tele (hasta 1080 líneas en automático) y para no mandar más cuadros por segundo que esa frecuencia; descarta
+  valores fuera de rango (ancho 320–16384, alto 240–16384, 10–480 Hz).
 - El emisor escucha en 5601 y muestra los receptores que ve. Si no aparece ninguno, permite escribir
-  la IP a mano.
+  la IP a mano. En una red que Windows trata como **pública**, el firewall bloquea estos anuncios: el emisor lo
+  avisa y ofrece abrir Configuración › Red para cambiarla a privada.
 
 ## Conexión
 

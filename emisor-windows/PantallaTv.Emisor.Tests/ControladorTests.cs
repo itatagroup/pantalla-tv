@@ -50,6 +50,36 @@ public class ControladorTests
     }
 
     [Fact]
+    public void La_configuracion_de_la_0_10_se_reconoce_como_propia_y_anterior()
+    {
+        // Tal como la escribió la 0.10 en un PC real.
+        var anterior = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Datos", "configuracion-0.10.xml"));
+        Assert.True(Controlador.EsConfiguracionPropia(anterior));
+        Assert.True(Controlador.EsConfiguracionAnterior(anterior));
+        Assert.False(Controlador.EsConfiguracionAnterior(Controlador.ConfiguracionPropia()));
+        Assert.False(Controlador.EsConfiguracionAnterior(anterior.Replace("<count>1</count>", "<count>2</count>")));
+    }
+
+    [Fact]
+    public void La_configuracion_propia_ofrece_los_modos_de_teles_tabletas_y_telefonos()
+    {
+        var modos = XDocument.Parse(Controlador.ConfiguracionPropia()).Root!.Element("resolutions")!.Elements("resolution")
+            .Select(r => (int.Parse(r.Element("width")!.Value), int.Parse(r.Element("height")!.Value), int.Parse(r.Element("refresh_rate")!.Value)))
+            .ToList();
+        Assert.Equal(modos.Count, modos.Distinct().Count());
+        Assert.Equal(Controlador.TamanosPropios.Length * Controlador.FrecuenciasPropias.Length, modos.Count);
+        // Lo que informan la Xiaomi (1280×720@60), una tele 4K a 50 Hz y un teléfono 20:9 a 120 Hz.
+        Assert.Equal((1280, 720, 60), MonitorVirtual.ElegirModo(modos, (1280, 720, 60)));
+        Assert.Equal((3840, 2160, 50), MonitorVirtual.ElegirModo(modos, (3840, 2160, 50)));
+        Assert.Equal((2400, 1080, 60), MonitorVirtual.ElegirModo(modos, (1080, 2400, 120)));
+        // En automático: una tele 4K o una tableta 16:10 quedan en 1080 líneas, con su forma.
+        Assert.Equal((1920, 1080, 60), MonitorVirtual.ElegirModo(modos, Mando.ModoAutomatico(new PantallaTele(3840, 2160, 60, "tv"))));
+        Assert.Equal((1728, 1080, 60), MonitorVirtual.ElegirModo(modos, Mando.ModoAutomatico(new PantallaTele(1600, 2560, 60, "tableta"))));
+        Assert.Equal((1280, 720, 60), MonitorVirtual.ElegirModo(modos, Mando.ModoAutomatico(new PantallaTele(1280, 720, 60, "tv"))));
+        Assert.Equal((2400, 1080, 60), MonitorVirtual.ElegirModo(modos, Mando.ModoAutomatico(new PantallaTele(1080, 2400, 120, "telefono"))));
+    }
+
+    [Fact]
     public void Multi_sz_ida_y_vuelta()
     {
         var bytes = Controlador.MultiSz(Controlador.IdHardware);

@@ -450,7 +450,8 @@ internal sealed class AsistenteInstalacion : Form
             (monitor is null ? "" : monitor + "\n\n") +
             "Vive como un ícono junto al reloj: clic derecho → «Transmitir a…».\n\n" +
             "En la tele, abre la app «Pantalla» antes de transmitir. La primera vez Windows puede preguntar si " +
-            "permites a Pantalla TV usar la red: acepta para redes privadas.";
+            "permites a Pantalla TV usar la red: marca «Redes privadas» y acepta. Es para ver las teles de tu casa " +
+            "(puerto UDP 5601); el programa no recibe nada de internet.";
         Mostrar(2);
     }
 }

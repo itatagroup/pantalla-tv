@@ -35,7 +35,9 @@ internal sealed class VentanaPrincipal : Form
     private readonly Label _etiquetaTv = new() { Text = "Transmitir &a" };
     private readonly Lista _tvs = new() { AccessibleName = "Transmitir a" };
     private readonly Boton _escribirIp = new() { Text = "Escribir &IP…", Estilo = EstiloBoton.Secundario };
-    private readonly Label _notaTvs = new() { Text = "No se ve ninguna TV: abre «Pantalla» en ella o escribe su IP.", UseMnemonic = false };
+    private const string SinTvs = "No se ve ninguna TV: abre «Pantalla» en ella o escribe su IP.";
+    private readonly Label _notaTvs = new() { Text = SinTvs, UseMnemonic = false };
+    private readonly Boton _abrirRed = new() { Text = "Abrir Configuración de &red", Estilo = EstiloBoton.Secundario };
     private readonly Label _etiquetaPantalla = new() { Text = "Qué &pantalla" };
     private readonly Panel _pantallas = new() { AccessibleName = "Qué pantalla", AccessibleRole = AccessibleRole.Grouping };
     private readonly Boton _instalarVirtual = new() { Text = "Instalar el &monitor virtual…", Estilo = EstiloBoton.Secundario };
@@ -57,6 +59,11 @@ internal sealed class VentanaPrincipal : Form
     private readonly Tarjeta _avanzado = new() { AccessibleName = "Avanzado", AccessibleRole = AccessibleRole.Grouping };
     private readonly Label _etiquetaForma = new() { Text = "&Forma de capturar" };
     private readonly Lista _forma = new() { AccessibleName = "Forma de capturar" };
+    private readonly Label _etiquetaModoVirtual = new() { Text = "M&onitor virtual" };
+    private readonly Lista _modoVirtual = new() { AccessibleName = "Tamaño y frecuencia del monitor virtual" };
+    private readonly Label _notaModoVirtual = new() { UseMnemonic = false };
+    private readonly Boton _reinstalarVirtual = new() { Estilo = EstiloBoton.Secundario };
+    private readonly Boton _quitarVirtual = new() { Estilo = EstiloBoton.Secundario };
     private readonly Casilla _reconectar = new() { Text = "Re&conectar solo si se corta" };
     private readonly Casilla _telemetria = new() { Text = "&Guardar telemetría (CSV)" };
     private readonly Boton _abrirTelemetria = new() { Text = "Abrir carp&eta de telemetría", Estilo = EstiloBoton.Secundario };
@@ -105,28 +112,33 @@ internal sealed class VentanaPrincipal : Form
         Controls.Add(_contenido);
         _contenido.Controls.AddRange([_punto, _estado, _banda, _principal, _ajustes, _expansor, _avanzado, _version, _botonSalir]);
         _banda.Controls.AddRange([_textoBanda, _actualizar, _despues]);
-        _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _boton]);
+        _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _boton]);
         _vivo.Controls.AddRange([.. _vivoEtiquetas, .. _vivoValores]);
         _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
-        _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
+        _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _notaModoVirtual,
+            _reinstalarVirtual, _quitarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
             _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
         OrdenTab(_actualizar, _despues);
-        OrdenTab(_etiquetaTv, _tvs, _escribirIp, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
+        OrdenTab(_etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarAhora);
+        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
-        foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
+        foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _etiquetaModoVirtual, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
         AcceptButton = _boton;
 
         _boton.Click += (_, _) => AlBotonPrincipal();
         _escribirIp.Click += (_, _) => EscribirIp();
+        _abrirRed.Click += (_, _) => Red.AbrirConfiguracion();
         _instalarVirtual.Click += (_, _) => _mando.InstalarMonitorVirtual();
         _tvs.SelectionChangeCommitted += (_, _) => { if (_tvs.Valor is Destino d) _elegido = d.Clave; };
         _forma.SelectionChangeCommitted += (_, _) => _mando.Cambiar(a => a.Tuberia = (string?)_forma.Valor);
+        _modoVirtual.SelectionChangeCommitted += (_, _) => _mando.Cambiar(a => a.ModoMonitorVirtual = (string?)_modoVirtual.Valor);
+        _reinstalarVirtual.Click += (_, _) => _mando.InstalarMonitorVirtual();
+        _quitarVirtual.Click += (_, _) => _mando.QuitarMonitorVirtual();
         Alternar(_sonido, (a, v) => a.ConAudio = v);
         Alternar(_silenciar, (a, v) => a.SilenciarPc = v);
         Alternar(_reconectar, (a, v) => a.Reconectar = v);
@@ -272,6 +284,9 @@ internal sealed class VentanaPrincipal : Form
             if (_tvs.Valor is Destino actual) _elegido = actual.Clave;
             _tvs.Enabled = destinos.Count > 0;
             _notaTvs.Visible = !transmitiendo && !Mando.HayTvAnunciada(destinos);
+            var avisoRed = _notaTvs.Visible ? m.AvisoRed() : null;
+            _notaTvs.Text = avisoRed ?? SinTvs;
+            _abrirRed.Visible = avisoRed is not null;
 
             // Pantallas: se rehacen solo si cambió la lista.
             var pantallas = m.OpcionesPantalla();
@@ -303,6 +318,7 @@ internal sealed class VentanaPrincipal : Form
             // Ajustes.
             _notaBloqueo.Visible = _notaBloqueoAvanzado.Visible = !editable;
             _forma.Cargar([.. m.OpcionesForma().Select(o => new ElementoLista(o.Texto, o.Valor))], m.Ajustes.Tuberia);
+            if (_abierto) RefrescarMonitorVirtual(m, editable);
             _sonido.Checked = m.Ajustes.ConAudio;
             _silenciar.Checked = m.Ajustes.SilenciarPc;
             _reconectar.Checked = m.Ajustes.Reconectar;
@@ -347,7 +363,7 @@ internal sealed class VentanaPrincipal : Form
     {
         var clave = string.Join("|", DeviceDpi, _abierto, _vivo.Visible, _estado.Text, _vivoValores[0].Text, _vivoValores[1].Text,
             _vivoValores[5].Text, _pantallas.Controls.Count, _instalarVirtual.Text, _notaDiagnostico.Text,
-            _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text,
+            _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text, _notaModoVirtual.Text, _modoVirtual.Visible, _quitarVirtual.Visible, _notaTvs.Text, _abrirRed.Visible,
             string.Concat(Notas().Select(n => n.Visible ? "1" : "0")));
         if (clave == _distribucion) return;
         _distribucion = clave;
@@ -418,11 +434,11 @@ internal sealed class VentanaPrincipal : Form
         foreach (var i in new[] { 2, 3, 4 }) _vivoValores[i].Font = _fuenteDato;
         _boton.Font = _fuenteBoton;
         _expansor.Font = _fuenteFuerte;
-        foreach (var l in new[] { _tvs, _forma }) l.ItemHeight = S(24);
+        foreach (var l in new[] { _tvs, _forma, _modoVirtual }) l.ItemHeight = S(24);
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones];
+        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -501,6 +517,12 @@ internal sealed class VentanaPrincipal : Form
             Poner(_escribirIp, relleno + interior - anchoIp - S(3), cy - S(3), anchoIp + S(6), altoCampo + S(6));
             cy += altoCampo;
             if (_notaTvs.Visible) cy = Nota(_notaTvs, relleno + etiquetas, cy + S(4), campo);
+            if (_abrirRed.Visible)
+            {
+                var anchoRed = TextRenderer.MeasureText(_abrirRed.Text.Replace("&", ""), _abrirRed.Font).Width + S(34);
+                Poner(_abrirRed, relleno + etiquetas - S(3), cy + S(6) - S(3), Math.Min(campo, anchoRed) + S(6), altoBoton + S(6));
+                cy += S(6) + altoBoton;
+            }
             cy += S(14);
 
             Etiqueta(_etiquetaPantalla, relleno, cy, etiquetas, altoFila);
@@ -544,7 +566,20 @@ internal sealed class VentanaPrincipal : Form
             if (_notaBloqueoAvanzado.Visible) cy = Nota(_notaBloqueoAvanzado, relleno, cy, interior) + S(10);
             Etiqueta(_etiquetaForma, relleno, cy, etiquetas, altoCampo);
             Poner(_forma, relleno + etiquetas, cy, campo, altoCampo);
-            cy += altoCampo + S(10);
+            cy += altoCampo + S(14);
+            Etiqueta(_etiquetaModoVirtual, relleno, cy, etiquetas, altoCampo);
+            if (_modoVirtual.Visible)
+            {
+                Poner(_modoVirtual, relleno + etiquetas, cy, campo, altoCampo);
+                cy += altoCampo + S(4);
+            }
+            cy = Nota(_notaModoVirtual, relleno + etiquetas, cy + (_modoVirtual.Visible ? 0 : S(4)), campo);
+            var mitadVirtual = (campo - S(8)) / 2;
+            var anchoReinstalar = _quitarVirtual.Visible ? mitadVirtual : campo;
+            Poner(_reinstalarVirtual, relleno + etiquetas - S(3), cy + S(6) - S(3), anchoReinstalar + S(6), altoBoton + S(6));
+            if (_quitarVirtual.Visible)
+                Poner(_quitarVirtual, relleno + etiquetas + mitadVirtual + S(8) - S(3), cy + S(6) - S(3), campo - mitadVirtual - S(8) + S(6), altoBoton + S(6));
+            cy += S(6) + altoBoton + S(14);
             cy = Casilla(_reconectar, relleno, cy, interior);
             cy = Casilla(_telemetria, relleno, cy, interior);
             cy += S(8);
@@ -580,6 +615,25 @@ internal sealed class VentanaPrincipal : Form
         if (Bottom > area.Bottom && Visible) Top = Math.Max(area.Top, area.Bottom - Height);
         _contenido.ResumeLayout(false);
         ResumeLayout(true); // el panel con Dock = Fill tiene que seguir al nuevo alto
+    }
+
+    /// <summary>
+    /// La sección del monitor virtual en «Avanzado». Solo con «Avanzado» abierto: leer sus modos y su configuración
+    /// toca el registro y el disco.
+    /// </summary>
+    private void RefrescarMonitorVirtual(Mando m, bool editable)
+    {
+        var hay = Mando.HayMonitorVirtual;
+        if (hay) _modoVirtual.Cargar([.. m.OpcionesModoVirtual().Select(o => new ElementoLista(o.Texto, o.Valor))], m.Ajustes.ModoMonitorVirtual);
+        _modoVirtual.Visible = hay;
+        _modoVirtual.Enabled = editable;
+        _notaModoVirtual.Text = m.NotaMonitorVirtual(_tvs.Valor is Destino d && !d.UltimaIp ? d.Receptor : null, hay);
+        _reinstalarVirtual.Text = m.TextoReinstalarVirtual(hay);
+        _quitarVirtual.Text = m.TextoQuitarVirtual;
+        _reinstalarVirtual.AccessibleName = _reinstalarVirtual.Text.Replace("&", "").TrimEnd('…') + " el monitor virtual";
+        _quitarVirtual.AccessibleName = _quitarVirtual.Text.Replace("&", "").TrimEnd('…') + " el monitor virtual";
+        _quitarVirtual.Visible = hay || m.InstalandoControlador;
+        _reinstalarVirtual.Enabled = _quitarVirtual.Enabled = editable && !m.InstalandoControlador;
     }
 
     private int AcomodarVivo(int cy, int relleno, int interior)
@@ -647,7 +701,7 @@ internal sealed class VentanaPrincipal : Form
         foreach (var l in _vivoEtiquetas) l.ForeColor = p.Secundario;
         foreach (var l in _vivoValores) l.ForeColor = p.TextoFuerte;
         _version.ForeColor = p.Secundario;
-        foreach (var l in new[] { _tvs, _forma }) l.BackColor = p.Superficie;
+        foreach (var l in new[] { _tvs, _forma, _modoVirtual }) l.BackColor = p.Superficie;
         if (IsHandleCreated) AplicarTemaVentana(p);
         CrearFuentes();
         Refrescar();
@@ -660,7 +714,7 @@ internal sealed class VentanaPrincipal : Form
         // La barra de desplazamiento (si hace falta) y las listas desplegadas, oscuras en el tema oscuro.
         var tema = p.Oscura ? "DarkMode_Explorer" : "Explorer";
         _ = SetWindowTheme(_contenido.Handle, tema, null);
-        foreach (var l in new[] { _tvs, _forma }) _ = SetWindowTheme(l.Handle, p.Oscura ? "DarkMode_CFD" : "CFD", null);
+        foreach (var l in new[] { _tvs, _forma, _modoVirtual }) _ = SetWindowTheme(l.Handle, p.Oscura ? "DarkMode_CFD" : "CFD", null);
     }
 
     protected override void OnHandleCreated(EventArgs e)

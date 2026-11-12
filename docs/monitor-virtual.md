@@ -66,8 +66,11 @@ la 24.12.24.
 - **Cómo se instala** (`Controlador.cs`, sin `devcon` ni otros binarios): se extraen los archivos a
   `%windir%\Temp`, se crea el nodo raíz `Root\MttVDD` (`ROOT\DISPLAY\000N`) con SetupAPI y se le instala el INF
   con `UpdateDriverForPlugAndPlayDevices`. Se escribe `C:\VirtualDisplayDriver\vdd_settings.xml` (o en la carpeta de
-  `HKLM\SOFTWARE\MikeTheTech\VirtualDisplayDriver\VDDPATH`) con un monitor y 1920×1080/1280×720 a 60 Hz,
-  **solo si no hay uno**.
+  `HKLM\SOFTWARE\MikeTheTech\VirtualDisplayDriver\VDDPATH`) con un monitor y los tamaños comunes de teles,
+  tabletas y teléfonos (de 1280×720 a 3840×2160, cada uno a 60, 50 y 30 Hz; lista en `Controlador.TamanosPropios`),
+  **solo si no hay uno** o si es el que escribió una versión anterior sin cambios (hasta la 0.10: solo
+  1920×1080/1280×720 a 60 Hz). Si el dispositivo ya existía, se deshabilita y habilita (`DIF_PROPERTYCHANGE`) para
+  que lea la configuración.
 - **Windows conecta y extiende el monitor recién instalado**: el proceso normal (no el elevado) espera a que
   aparezca y lo desconecta, vigilando unos segundos por si Windows lo vuelve a conectar.
 - **Marca de propiedad**: `ControladorInstaladoPorNosotros = 1` en la clave de desinstalación, solo si el
@@ -78,6 +81,9 @@ la 24.12.24.
   responde traducido). `vdd_settings.xml` se borra solo si sigue idéntico al que escribimos. Sin ventanas:
   `--desinstalar --silencioso --quitar-monitor-virtual`.
 - **Bandeja**: si no está, «Qué pantalla se transmite» › «Instalar el monitor virtual…».
+- **Avanzado › Monitor virtual** (0.11.0+): instalar, **reinstalar** (actualiza la configuración si es la nuestra y
+  reinicia el dispositivo; también arregla uno que quedó a medias) o **quitar** en cualquier momento, cada uno con
+  su UAC. Si falla, el aviso dice el motivo y queda en el registro (y en el diagnóstico).
 
 ### Qué se probó
 
@@ -109,8 +115,17 @@ solo con una prueba unitaria (el monitor virtual probado cuelga de la misma grá
 
 ## Resolución del monitor virtual
 
-Si se quiere otra resolución: Configuración → Sistema → Pantalla → seleccionar el monitor virtual → resolución, o
-editar `vdd_settings.xml` (ver más arriba dónde queda).
+Desde la 0.11.0 el monitor virtual se conecta con el modo de la tele: el receptor (0.8.0+) informa su pantalla
+(`docs/protocolo.md`, «Descubrimiento») y el emisor elige, entre los que ofrece el controlador, el más cercano sin
+pasarse: primero el tamaño exacto, después la misma forma (sin franjas), después el más grande, y la frecuencia más
+alta que no supere la de la tele. Un teléfono o tableta en vertical se toma en horizontal (el monitor virtual siempre
+lo es). En automático se limita a 1080 líneas (una tele 4K recibe 1920×1080), porque 4K a 60 Hz carga la codificación
+y sube la latencia; los cuadros por segundo tampoco pasan de la frecuencia del monitor. Si la tele no informa su
+pantalla (receptor anterior), 1920×1080 a 60 Hz como antes.
+
+Para fijar otro: **Avanzado › Monitor virtual** (la lista muestra los modos que ofrece el controlador; se guarda en
+`ModoMonitorVirtual` de los ajustes). Por línea de comandos: `--monitor virtual --modo-virtual 1280x720@60`. Con una
+configuración de la 0.10 o anterior la lista solo trae dos modos: «Reinstalar» la actualiza.
 
 ## Pendiente
 

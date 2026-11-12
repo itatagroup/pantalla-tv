@@ -195,7 +195,7 @@ internal static class Controlador
         try
         {
             ExtraerArchivos(temporal);
-            EscribirConfiguracionSiFalta();
+            var configuracionNueva = EscribirConfiguracion();
             var inf = Path.Combine(temporal, Archivos[0]);
 
             var creado = false;
@@ -214,6 +214,9 @@ internal static class Controlador
                 if (creado) QuitarDispositivos(); // no dejar un dispositivo sin controlador
                 throw new ControladorException($"Windows no instaló el controlador ({new Win32Exception(error).Message}).");
             }
+            // Ya estaba: se reinicia para que lea la configuración (y para arreglar uno que quedó a medias).
+            if (!creado && !ReiniciarDispositivos()) reiniciar = true;
+            if (configuracionNueva) Registro.Anotar("monitor virtual: configuración escrita con los modos de esta versión");
             return (creado, reiniciar ? "Windows pide reiniciar el PC para terminar de instalar el monitor virtual." : null);
         }
         finally
@@ -270,11 +273,30 @@ internal static class Controlador
     }
 
     /// <summary>
-    /// La configuración que escribe Pantalla TV: un monitor, 1920×1080 y 1280×720 a 60 Hz (sin la lista
+    /// Los tamaños que ofrece el monitor virtual (en horizontal): los de teles, tabletas y teléfonos comunes, para que
+    /// coincida con la pantalla que informa el receptor (1728×1080: una de 16:10 reducida a 1080 líneas, lo que se pide
+    /// en automático). Cada uno a 60, 50 y 30 Hz.
+    /// </summary>
+    internal static readonly (int Ancho, int Alto)[] TamanosPropios =
+        [(3840, 2160), (2560, 1600), (2560, 1440), (2400, 1080), (1920, 1200), (1920, 1080), (1728, 1080), (1600, 900), (1366, 768), (1280, 800), (1280, 720)];
+
+    internal static readonly int[] FrecuenciasPropias = [60, 50, 30];
+
+    /// <summary>
+    /// La configuración que escribe Pantalla TV: un monitor y los modos de <see cref="TamanosPropios"/> (sin la lista
     /// «global» de frecuencias, que duplicaría los modos). Las opciones, como las trae el controlador.
     /// </summary>
     internal static string ConfiguracionPropia() =>
-        """
+        Configuracion(TamanosPropios.SelectMany(t => FrecuenciasPropias.Select(hz => (t.Ancho, t.Alto, hz))));
+
+    /// <summary>Las que escribieron versiones anteriores (hasta la 0.10): se reconocen como nuestras y se actualizan.</summary>
+    internal static readonly string[] ConfiguracionesAnteriores = [Configuracion([(1920, 1080, 60), (1280, 720, 60)])];
+
+    private static string Configuracion(IEnumerable<(int Ancho, int Alto, int Hz)> modos)
+    {
+        var resoluciones = string.Concat(modos.Select(m =>
+            $"        <resolution>\n            <width>{m.Ancho}</width>\n            <height>{m.Alto}</height>\n            <refresh_rate>{m.Hz}</refresh_rate>\n        </resolution>\n"));
+        return ("""
         <?xml version='1.0' encoding='utf-8'?>
         <!-- Escrito por Pantalla TV al instalar el monitor virtual. Si lo cambias, Pantalla TV no lo borra al quitar el controlador. -->
         <vdd_settings>
@@ -285,16 +307,8 @@ internal static class Controlador
                 <friendlyname>default</friendlyname>
             </gpu>
             <resolutions>
-                <resolution>
-                    <width>1920</width>
-                    <height>1080</height>
-                    <refresh_rate>60</refresh_rate>
-                </resolution>
-                <resolution>
-                    <width>1280</width>
-                    <height>720</height>
-                    <refresh_rate>60</refresh_rate>
-                </resolution>
+
+        """ + resoluciones + """
             </resolutions>
             <options>
                 <CustomEdid>false</CustomEdid>
@@ -307,19 +321,50 @@ internal static class Controlador
                 <debuglogging>false</debuglogging>
             </options>
         </vdd_settings>
-        """.ReplaceLineEndings("\r\n") + "\r\n";
+        """).ReplaceLineEndings("\r\n") + "\r\n";
+    }
 
-    /// <summary>¿Es exactamente la configuración que escribimos (nadie la cambió)? Solo entonces se puede borrar.</summary>
-    internal static bool EsConfiguracionPropia(string contenido) =>
-        contenido.ReplaceLineEndings("\n").Trim() == ConfiguracionPropia().ReplaceLineEndings("\n").Trim();
+    private static string Normalizar(string texto) => texto.ReplaceLineEndings("\n").Trim();
 
-    /// <summary>Escribe la configuración solo si no hay una: la del usuario no se pisa.</summary>
-    private static void EscribirConfiguracionSiFalta()
+    /// <summary>
+    /// ¿Es exactamente una configuración que escribimos, esta o la de una versión anterior (nadie la cambió)? Solo
+    /// entonces se puede borrar o actualizar.
+    /// </summary>
+    internal static bool EsConfiguracionPropia(string contenido)
+    {
+        var c = Normalizar(contenido);
+        return c == Normalizar(ConfiguracionPropia()) || ConfiguracionesAnteriores.Any(a => c == Normalizar(a));
+    }
+
+    /// <summary>¿Es una configuración nuestra de una versión anterior (con menos modos)? Reinstalar la actualiza.</summary>
+    internal static bool EsConfiguracionAnterior(string contenido) =>
+        EsConfiguracionPropia(contenido) && Normalizar(contenido) != Normalizar(ConfiguracionPropia());
+
+    /// <summary>¿La configuración instalada es una nuestra de una versión anterior?</summary>
+    public static bool ConfiguracionDesactualizada()
+    {
+        try
+        {
+            var ruta = RutaConfiguracion();
+            return File.Exists(ruta) && EsConfiguracionAnterior(File.ReadAllText(ruta));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Escribe la configuración si no hay una o si es una nuestra de una versión anterior: la del usuario no se pisa.
+    /// Devuelve si la cambió.
+    /// </summary>
+    private static bool EscribirConfiguracion()
     {
         var ruta = RutaConfiguracion();
-        if (File.Exists(ruta)) return;
+        if (File.Exists(ruta) && !EsConfiguracionAnterior(File.ReadAllText(ruta))) return false;
         Directory.CreateDirectory(Path.GetDirectoryName(ruta)!);
         File.WriteAllText(ruta, ConfiguracionPropia(), new UTF8Encoding(false));
+        return true;
     }
 
     private static void BorrarConfiguracionSiEsNuestra()
@@ -377,6 +422,29 @@ internal static class Controlador
             reiniciar |= r;
         });
         return reiniciar;
+    }
+
+    /// <summary>
+    /// Deshabilita y vuelve a habilitar cada dispositivo presente (DIF_PROPERTYCHANGE, lo que hacen «Deshabilitar» y
+    /// «Habilitar» en el Administrador de dispositivos): así el controlador vuelve a leer su configuración. Devuelve
+    /// false si alguno no se pudo reiniciar (queda para el próximo reinicio del PC).
+    /// </summary>
+    private static bool ReiniciarDispositivos()
+    {
+        var todo = true;
+        RecorrerDispositivos((lista, dato) =>
+        {
+            foreach (var estado in new[] { DicsDisable, DicsEnable })
+            {
+                var p = new CambioPropiedad { Tamano = 8, Funcion = DifPropertyChange, Estado = estado, Alcance = DicsFlagGlobal };
+                if (SetupDiSetClassInstallParams(lista, ref dato, ref p, Marshal.SizeOf<CambioPropiedad>())
+                    && SetupDiCallClassInstaller(DifPropertyChange, lista, ref dato)) continue;
+                // Un nodo fantasma (no presente) no se puede reiniciar: no importa.
+                if (Marshal.GetLastWin32Error() != ErrorNoSuchDevinst) todo = false;
+                break;
+            }
+        });
+        return todo;
     }
 
     private delegate void AccionDispositivo(IntPtr lista, DatosDispositivo dato);
@@ -449,6 +517,25 @@ internal static class Controlador
     private const int GenerarId = 0x1; // DICD_GENERATE_ID → ROOT\DISPLAY\000N
     private const int SpdrpHardwareId = 0x1;
     private const int DifRegisterDevice = 0x19;
+    private const int DifPropertyChange = 0x12;
+    private const int DicsEnable = 1;
+    private const int DicsDisable = 2;
+    private const int DicsFlagGlobal = 1;
+    private const int ErrorNoSuchDevinst = unchecked((int)0xE000020B);
+
+    /// <summary>SP_PROPCHANGE_PARAMS (con su SP_CLASSINSTALL_HEADER al comienzo).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CambioPropiedad
+    {
+        public int Tamano;
+        public int Funcion;
+        public int Estado;
+        public int Alcance;
+        public int Perfil;
+    }
+
+    [DllImport("setupapi.dll", SetLastError = true, EntryPoint = "SetupDiSetClassInstallParamsW")]
+    private static extern bool SetupDiSetClassInstallParams(IntPtr lista, ref DatosDispositivo dato, ref CambioPropiedad parametros, int tamano);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct DatosDispositivo // SP_DEVINFO_DATA

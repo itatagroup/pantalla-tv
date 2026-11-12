@@ -57,21 +57,39 @@ internal sealed class MonitorVirtual
     /// Antes de tocar nada deja una marca en disco: Windows guarda el cambio en el registro y, si el
     /// proceso muere conectado, el próximo arranque lo desconecta (<see cref="RecuperarSiQuedoConectado"/>).
     /// </summary>
-    public Resultado Conectar(TimeSpan espera)
-    {
-        if (EstaConectado()) return Resultado.YaEstaba;
+    /// <summary>El modo con que quedó conectado en el último <see cref="Conectar"/> (null si ya estaba o falló).</summary>
+    public (int Ancho, int Alto, int Hz)? ModoConectado { get; private set; }
 
-        var modos = new List<(int Ancho, int Alto, int Hz)>();
+    /// <summary>Los modos que ofrece el controlador (los de su configuración), sin repetir, del mayor al menor.</summary>
+    public IReadOnlyList<(int Ancho, int Alto, int Hz)> ModosOfrecidos() =>
+        LeerModos().Select(m => (Ancho: m.PelsWidth, Alto: m.PelsHeight, Hz: m.DisplayFrequency)).Distinct()
+            .OrderByDescending(m => (long)m.Ancho * m.Alto).ThenByDescending(m => m.Hz).ToList();
+
+    private List<Modo> LeerModos()
+    {
         var todos = new List<Modo>();
         for (var i = 0; ; i++)
         {
             var m = Modo.Nuevo();
             if (!EnumDisplaySettings(Dispositivo, i, ref m)) break;
             todos.Add(m);
-            modos.Add((m.PelsWidth, m.PelsHeight, m.DisplayFrequency));
         }
-        var elegido = ElegirModo(modos);
-        Registro.Anotar($"monitor virtual {Dispositivo}: modos que ofrece el controlador: "
+        return todos;
+    }
+
+    /// <param name="preferido">
+    /// El modo al que se quiere llegar (el de la tele, o el que eligió el usuario): se usa el más cercano que ofrezca el
+    /// controlador sin pasarse. Null: 1080p a 60 Hz como siempre.
+    /// </param>
+    public Resultado Conectar(TimeSpan espera, (int Ancho, int Alto, int Hz)? preferido = null)
+    {
+        ModoConectado = null;
+        if (EstaConectado()) return Resultado.YaEstaba;
+
+        var todos = LeerModos();
+        var modos = todos.Select(m => (Ancho: m.PelsWidth, Alto: m.PelsHeight, Hz: m.DisplayFrequency)).ToList();
+        var elegido = ElegirModo(modos, preferido);
+        Registro.Anotar($"monitor virtual {Dispositivo}: se busca {(preferido is { } q ? $"{q.Ancho}×{q.Alto}@{q.Hz}" : "el de siempre")}; modos que ofrece el controlador: "
                         + (modos.Count == 0 ? "ninguno" : string.Join(", ", modos.Distinct().Select(m => $"{m.Ancho}×{m.Alto}@{m.Hz}")))
                         + (elegido is { } e ? $"; elegido {e.Ancho}×{e.Alto}@{e.Hz}" : ""));
         if (elegido is null)
@@ -105,7 +123,10 @@ internal sealed class MonitorVirtual
             if (EstaConectado()
                 && Monitores.Pantallas().Any(p => EsEste(p.Nombre))
                 && Dxgi.Salidas().Any(s => EsEste(s.Dispositivo)))
+            {
+                ModoConectado = elegido;
                 return Resultado.Conectado;
+            }
             Thread.Sleep(250);
         }
         // Qué faltó: conectarse al escritorio, aparecer como pantalla o aparecer en la gráfica (DXGI). Lo último pasa
@@ -240,6 +261,31 @@ internal sealed class MonitorVirtual
     /// De los modos que ofrece el controlador, el que se usa para transmitir: 1920×1080 a 60 Hz; si no
     /// está, el de mayor área que no pase de 1080p a 60 Hz; si tampoco, ninguno.
     /// </summary>
+    internal static (int Ancho, int Alto, int Hz)? ElegirModo(IEnumerable<(int Ancho, int Alto, int Hz)> ofrecidos,
+        (int Ancho, int Alto, int Hz)? preferido)
+    {
+        var lista = ofrecidos.Distinct().ToList();
+        if (preferido is { } p)
+        {
+            // Horizontal siempre: una tele o tableta en vertical informa su modo «de pie».
+            var (ancho, alto) = (Math.Max(p.Ancho, p.Alto), Math.Min(p.Ancho, p.Alto));
+            // 59,94 Hz llega redondeado a 60; se tolera 1 Hz de más.
+            var caben = lista.Where(m => m.Ancho <= ancho && m.Alto <= alto && m.Hz <= p.Hz + 1 && m.Hz >= 24).ToList();
+            if (caben.Count > 0)
+            {
+                var proporcion = (double)ancho / alto;
+                bool MismaForma((int Ancho, int Alto, int Hz) m) => Math.Abs((double)m.Ancho / m.Alto - proporcion) < 0.03;
+                // Primero el tamaño exacto; si no, la misma forma (sin franjas); si no, el más grande. Después, más Hz.
+                return caben.OrderByDescending(m => m.Ancho == ancho && m.Alto == alto)
+                    .ThenByDescending(MismaForma)
+                    .ThenByDescending(m => (long)m.Ancho * m.Alto)
+                    .ThenByDescending(m => m.Hz)
+                    .First();
+            }
+        }
+        return ElegirModo(lista);
+    }
+
     internal static (int Ancho, int Alto, int Hz)? ElegirModo(IEnumerable<(int Ancho, int Alto, int Hz)> ofrecidos)
     {
         var a60 = ofrecidos.Where(m => m.Hz == 60 && m.Ancho <= 1920 && m.Alto <= 1080).ToList();

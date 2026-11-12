@@ -23,7 +23,7 @@ internal sealed record Destino(Receptor Receptor, bool UltimaIp)
 internal sealed class EnVivo
 {
     public required string Tv { get; init; }
-    public required int FpsPedidos { get; init; }
+    public required int FpsPedidos { get; set; }
     public string Pantalla { get; set; } = "Preparando…";
     /// <summary>Cuándo empezó a llegar imagen (la primera vez: las reconexiones no reinician la cuenta).</summary>
     public DateTime? Desde { get; set; }
@@ -44,6 +44,8 @@ internal sealed partial class Mando : IDisposable
 
     private readonly SynchronizationContext _ui;
     private readonly Func<IReadOnlyList<Receptor>> _tvs;
+    /// <summary>La pantalla que informó cada tele (receptor 0.8.0+), para ajustar el monitor virtual y los fps.</summary>
+    private readonly Func<Receptor, PantallaTele?> _pantallaDe;
     private readonly IDisposable? _propio;
     private CancellationTokenSource? _cancelar;
     private Task? _tarea;
@@ -55,8 +57,9 @@ internal sealed partial class Mando : IDisposable
     /// <param name="comprobador">El que busca versiones nuevas (null = no se busca: las pruebas que no lo usan).</param>
     /// <param name="reloj">La hora de la última búsqueda (las pruebas ponen uno propio).</param>
     public Mando(Ajustes ajustes, SynchronizationContext ui, Func<IReadOnlyList<Receptor>> tvs, IDisposable? propio = null,
-        ComprobadorActualizaciones? comprobador = null, TimeProvider? reloj = null)
+        ComprobadorActualizaciones? comprobador = null, TimeProvider? reloj = null, Func<Receptor, PantallaTele?>? pantallaDe = null)
     {
+        _pantallaDe = pantallaDe ?? (_ => null);
         Ajustes = ajustes;
         _ui = ui;
         _tvs = tvs;
@@ -75,7 +78,8 @@ internal sealed partial class Mando : IDisposable
         var descubridor = new Descubridor();
         descubridor.Iniciar();
         problemaRed = descubridor.Problema;
-        var mando = new Mando(Ajustes.Cargar(), ui, descubridor.Vigentes, descubridor, ComprobadorActualizaciones.Crear(manifiesto));
+        var mando = new Mando(Ajustes.Cargar(), ui, descubridor.Vigentes, descubridor, ComprobadorActualizaciones.Crear(manifiesto),
+            pantallaDe: descubridor.PantallaDe);
         if (mando.PuedeIniciarConWindows) Instalacion.ActualizarInicioConWindows(Environment.ProcessPath!);
         mando.IniciarActualizaciones();
         return mando;
@@ -92,7 +96,9 @@ internal sealed partial class Mando : IDisposable
     public Fase Fase { get; private set; } = Fase.Inactivo;
     public string Estado { get; private set; } = SinTransmitir;
     public bool Transmitiendo => _tarea is { IsCompleted: false };
+    /// <summary>Hay una instalación, reinstalación o desinstalación del monitor virtual en curso (pidiendo UAC).</summary>
     public bool InstalandoControlador { get; private set; }
+    private bool _quitandoControlador;
     public bool Diagnosticando { get; private set; }
     public EnVivo? EnVivo { get; internal set; }
 
@@ -127,6 +133,47 @@ internal sealed partial class Mando : IDisposable
         Ajustes.AvisoBandejaVisto = true;
         Ajustes.Guardar();
         return true;
+    }
+
+    /// <summary>La pantalla que informó esa tele (o null si es anterior a la 0.8.0 o no se ha visto).</summary>
+    public PantallaTele? PantallaDe(Receptor receptor) => _pantallaDe(receptor);
+
+    /// <summary>«1920x1080@60» → el modo; null si no es eso.</summary>
+    internal static (int Ancho, int Alto, int Hz)? LeerModo(string? texto)
+    {
+        if (texto is null) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(texto, @"^(\d{3,5})x(\d{3,5})@(\d{2,3})$");
+        return m.Success ? (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value)) : null;
+    }
+
+    internal static string TextoModo((int Ancho, int Alto, int Hz) m) => $"{m.Ancho}×{m.Alto} a {m.Hz} Hz";
+
+    /// <summary>Más líneas que esto, solo eligiéndolo a mano: 4K a 60 Hz carga la codificación y sube la latencia.</summary>
+    internal const int LineasAutomaticas = 1080;
+
+    /// <summary>
+    /// El modo que se pide en automático para esa tele: su pantalla en horizontal, reducida (con la misma forma) si
+    /// pasa de <see cref="LineasAutomaticas"/> líneas.
+    /// </summary>
+    internal static (int Ancho, int Alto, int Hz) ModoAutomatico(PantallaTele tele)
+    {
+        var (ancho, alto) = tele.Horizontal;
+        if (alto > LineasAutomaticas)
+            (ancho, alto) = ((int)Math.Round((double)ancho * LineasAutomaticas / alto), LineasAutomaticas);
+        return (ancho, alto, tele.Hz);
+    }
+
+    /// <summary>
+    /// «Automática (según la tele)» y los modos que ofrece el controlador. Uno guardado que el controlador ya no ofrece
+    /// también aparece (marcado), para no mostrar uno que no se usa.
+    /// </summary>
+    public IReadOnlyList<Opcion<string?>> OpcionesModoVirtual()
+    {
+        var ofrecidos = MonitorVirtual.Detectar()?.ModosOfrecidos() ?? [];
+        var claves = ofrecidos.Select(m => $"{m.Ancho}x{m.Alto}@{m.Hz}").ToList();
+        if (Ajustes.ModoMonitorVirtual is { } guardado && !claves.Contains(guardado)) claves.Add(guardado);
+        return [new Opcion<string?>("Automática (según la tele)", null, Ajustes.ModoMonitorVirtual is null),
+            .. claves.Select(c => new Opcion<string?>(LeerModo(c) is { } m ? TextoModo(m) : c, c, Ajustes.ModoMonitorVirtual == c))];
     }
 
     /// <summary>Por defecto, automática. Elegir una a mano sirve para comparar o si la automática falla en este PC.</summary>
@@ -167,13 +214,53 @@ internal sealed partial class Mando : IDisposable
 
     public IReadOnlyList<Destino> Destinos() => ArmarDestinos(_tvs(), Ajustes.UltimaIp);
 
+    private string? _avisoRed;
+    private DateTime _redLeida = DateTime.MinValue;
+
+    /// <summary>
+    /// Si Windows trata la red como pública (y por eso no se ven las teles), el aviso; si no, null. Se vuelve a leer
+    /// cada pocos segundos: el usuario puede cambiarla mientras la ventana está abierta.
+    /// </summary>
+    public string? AvisoRed()
+    {
+        if (DateTime.UtcNow - _redLeida < TimeSpan.FromSeconds(5)) return _avisoRed;
+        _redLeida = DateTime.UtcNow;
+        return _avisoRed = Red.Aviso(Red.PublicasConectadas());
+    }
+
     /// <summary>¿Alguna TV se anuncia? Si no, el menú y la ventana lo dicen (aunque quede la última IP).</summary>
     public static bool HayTvAnunciada(IReadOnlyList<Destino> destinos) => destinos.Any(d => !d.UltimaIp);
 
     /// <summary>«Silenciar el PC» solo tiene sentido si se envía el sonido.</summary>
     public bool PuedeSilenciar => PuedeCambiarAjustes && Ajustes.ConAudio;
 
-    public string TextoInstalarVirtual => InstalandoControlador ? "Instalando el monitor virtual…" : "Instalar el monitor virtual…";
+    public string TextoInstalarVirtual => InstalandoControlador && !_quitandoControlador ? "Instalando el monitor virtual…" : "Instalar el monitor virtual…";
+
+    /// <summary>¿Está el monitor virtual instalado? (Para ofrecer reinstalarlo o quitarlo en «Avanzado».)</summary>
+    public static bool HayMonitorVirtual => Controlador.Instalado();
+
+    public string TextoReinstalarVirtual(bool hay) => InstalandoControlador && !_quitandoControlador
+        ? (hay ? "Reinstalando…" : "Instalando…")
+        : (hay ? "&Reinstalar…" : "Instala&r…");
+
+    public string TextoQuitarVirtual => _quitandoControlador ? "Quitando…" : "&Quitar…";
+
+    /// <summary>
+    /// La nota bajo el modo del monitor virtual: qué pantalla informó la tele elegida, y si conviene reinstalar para
+    /// tener los modos nuevos.
+    /// </summary>
+    public string NotaMonitorVirtual(Receptor? tele, bool hay)
+    {
+        if (!hay)
+            return "El monitor virtual no está instalado. Instalarlo pide permiso de administrador; se puede quitar cuando quieras.";
+        var texto = tele is null ? "" : PantallaDe(tele) is { } p
+            ? $"«{tele.Nombre}» informa {p}: en automático el monitor virtual se ajusta a eso"
+              + (p.Horizontal.Alto > LineasAutomaticas ? $" (hasta {LineasAutomaticas} líneas; más, eligiéndolo aquí). " : ". ")
+            : $"«{tele.Nombre}» no informa su pantalla (versión anterior a la 0.8.0): en automático se usa 1920×1080 a 60 Hz. ";
+        if (Controlador.ConfiguracionDesactualizada())
+            texto += "Reinstala el monitor virtual para tener más tamaños y frecuencias (pide permiso de administrador).";
+        return texto.Trim();
+    }
 
     internal static IReadOnlyList<Destino> ArmarDestinos(IReadOnlyList<Receptor> tvs, string? ultimaIp)
     {
@@ -256,17 +343,27 @@ internal sealed partial class Mando : IDisposable
         Estado = $"Conectando con {receptor.Nombre}…";
         var a = Ajustes;
         var nombreMonitor = a.MonitorNombre;
+        // El monitor virtual a la medida de la tele: el modo elegido a mano o, si no, el que ella informa.
+        var tele = _pantallaDe(receptor);
+        var modoVirtual = LeerModo(a.ModoMonitorVirtual) ?? (tele is { } t ? ModoAutomatico(t) : null);
         _tarea = Task.Run(async () =>
         {
             Monitores.Preparado? preparado = null;
             try
             {
                 // Dentro de la tarea: conectar el monitor virtual tarda unos segundos y no debe congelar la interfaz.
-                preparado = Monitores.Preparar(nombreMonitor, m => AlEstado(new EstadoEmision(Fase.Conectando, m)));
+                preparado = Monitores.Preparar(nombreMonitor, m => AlEstado(new EstadoEmision(Fase.Conectando, m)), modoVirtual);
                 var monitor = preparado.Monitor; // en píxeles reales (el programa es consciente del DPI)
                 var esVirtual = Monitores.EsElVirtual(monitor);
                 EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"Monitor virtual · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
-                var op = new OpcionesEmision(a.Fps, a.Kbps, monitor.Ancho, monitor.Alto, esVirtual, null,
+                // Más cuadros que los Hz de la pantalla (la del monitor virtual o la de la tele) no se ven y gastan más.
+                var fps = Math.Min(a.Fps, preparado.Hz ?? (tele?.Hz is int hz && hz >= 24 ? hz : a.Fps));
+                if (fps != a.Fps)
+                {
+                    Registro.Anotar($"cuadros por segundo: {fps} en vez de {a.Fps} (la pantalla va a {preparado.Hz ?? tele?.Hz} Hz)");
+                    EnLaInterfaz(() => vivo.FpsPedidos = fps);
+                }
+                var op = new OpcionesEmision(fps, a.Kbps, monitor.Ancho, monitor.Alto, esVirtual, null,
                     Tuberia: a.Tuberia, ConAudio: a.ConAudio, SilenciarPc: a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre);
                 await emision.EjecutarAsync(receptor, op, telemetria, ct);
             }
@@ -319,29 +416,60 @@ internal sealed partial class Mando : IDisposable
         });
     }
 
-    /// <summary>Instala el controlador (pide UAC) en segundo plano y avisa cómo terminó.</summary>
+    /// <summary>
+    /// Instala el controlador (pide UAC) en segundo plano y avisa cómo terminó. Si ya estaba, lo reinstala: actualiza
+    /// su configuración (si es la de Pantalla TV) y lo reinicia, lo que también arregla uno que quedó a medias.
+    /// </summary>
     public void InstalarMonitorVirtual()
+    {
+        if (!PuedeCambiarAjustes) return; // transmitiendo podría estar usándolo
+        var reinstalar = HayMonitorVirtual;
+        // La marca «lo instalamos nosotros» solo tiene sentido en la instalación (si no, no se puede desinstalar).
+        var id = PuedeIniciarConWindows ? Instalacion.IdPorDefecto : null; // = corre desde la instalación
+        OperarControlador(quitar: false, () => Controlador.InstalarConPermiso(id), r => r.Resultado switch
+        {
+            Controlador.Resultado.Hecho => ((reinstalar ? "Monitor virtual reinstalado." : "Monitor virtual instalado. Elígelo en «Qué pantalla se transmite».")
+                                            + (r.Detalle is null ? "" : " " + r.Detalle), ToolTipIcon.Info),
+            Controlador.Resultado.Rechazado => ($"El monitor virtual no se {(reinstalar ? "reinstaló" : "instaló")}: no se dio permiso de administrador.", ToolTipIcon.Warning),
+            _ => ($"El monitor virtual no se pudo {(reinstalar ? "reinstalar" : "instalar")}: " + r.Detalle, ToolTipIcon.Error),
+        });
+    }
+
+    /// <summary>Quita el monitor virtual (dispositivo, controlador y su configuración si es la nuestra), pidiendo UAC.</summary>
+    public void QuitarMonitorVirtual()
+    {
+        if (!PuedeCambiarAjustes) return; // transmitiendo podría estar usándolo
+        OperarControlador(quitar: true, () => Controlador.QuitarConPermiso(Instalacion.IdPorDefecto), r => r.Resultado switch
+        {
+            Controlador.Resultado.Hecho => ("Monitor virtual quitado." + (r.Detalle is null ? "" : " " + r.Detalle), ToolTipIcon.Info),
+            Controlador.Resultado.Rechazado => ("El monitor virtual no se quitó: no se dio permiso de administrador.", ToolTipIcon.Warning),
+            _ => ("El monitor virtual no se pudo quitar: " + r.Detalle, ToolTipIcon.Error),
+        });
+    }
+
+    private void OperarControlador(bool quitar, Func<Controlador.Respuesta> operacion,
+        Func<Controlador.Respuesta, (string Texto, ToolTipIcon Icono)> aviso)
     {
         if (InstalandoControlador) return;
         InstalandoControlador = true;
+        _quitandoControlador = quitar;
         Cambio?.Invoke();
-        // La marca «lo instalamos nosotros» solo tiene sentido en la instalación (si no, no se puede desinstalar).
-        var id = PuedeIniciarConWindows ? Instalacion.IdPorDefecto : null; // = corre desde la instalación
+        var accion = quitar ? "quitar" : "instalar";
         Task.Run(() =>
         {
             Controlador.Respuesta r;
-            try { r = Controlador.InstalarConPermiso(id); }
+            try { r = operacion(); }
             catch (Exception e) { r = new Controlador.Respuesta(Controlador.Resultado.Fallo, e.Message); }
+            if (r.Resultado == Controlador.Resultado.Fallo)
+                Registro.Error($"monitor virtual: no se pudo {accion}: {r.Detalle}");
+            else
+                Registro.Anotar($"monitor virtual: {accion} → {r.Resultado}{(r.Detalle is null ? "" : ": " + r.Detalle)}");
             _ui.Post(_ =>
             {
                 InstalandoControlador = false;
-                ActualizarPantallas(); // si se instaló, ahora está el virtual
-                var (texto, icono) = r.Resultado switch
-                {
-                    Controlador.Resultado.Hecho => ("Monitor virtual instalado. Elígelo en «Qué pantalla se transmite»." + (r.Detalle is null ? "" : " " + r.Detalle), ToolTipIcon.Info),
-                    Controlador.Resultado.Rechazado => ("El monitor virtual no se instaló: no se dio permiso de administrador.", ToolTipIcon.Warning),
-                    _ => ("El monitor virtual no se pudo instalar: " + r.Detalle, ToolTipIcon.Error),
-                };
+                _quitandoControlador = false;
+                ActualizarPantallas(); // ahora está (o ya no está) el virtual
+                var (texto, icono) = aviso(r);
                 Aviso?.Invoke(texto, icono);
                 Cambio?.Invoke();
             }, null);

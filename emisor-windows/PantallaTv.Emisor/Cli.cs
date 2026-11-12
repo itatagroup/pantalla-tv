@@ -134,8 +134,13 @@ internal static class Cli
         }
         await Task.Delay(TimeSpan.FromSeconds(seg));
         var tvs = d.Vigentes();
-        foreach (var tv in tvs) Console.WriteLine($"{tv.Nombre}\t{tv.Direccion}\t{tv.Puerto}");
+        foreach (var tv in tvs)
+        {
+            var pantalla = d.PantallaDe(tv) is { } pt ? $"{pt} ({pt.Tipo})" : "pantalla sin informar";
+            Console.WriteLine($"{tv.Nombre}\t{tv.Direccion}\t{tv.Puerto}\t{pantalla}");
+        }
         if (tvs.Count == 0) Console.WriteLine("No se vio ningún receptor.");
+        if (Red.Aviso(Red.PublicasConectadas()) is { } aviso) Console.WriteLine(aviso);
         return tvs.Count > 0 ? 0 : 2;
     }
 
@@ -153,7 +158,7 @@ internal static class Cli
         try
         {
             preparado = eleccion == Monitores.ElMonitorVirtual
-                ? Monitores.Preparar(eleccion, Console.WriteLine)
+                ? Monitores.Preparar(eleccion, Console.WriteLine, Mando.LeerModo(Texto(args, "--modo-virtual")))
                 : new Monitores.Preparado(Monitores.Elegir(Numero(args, "--monitor", 0)), () => { });
         }
         catch (EmisionException e)

@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>PantallaTv</AssemblyName>
-    <Version>0.10.0</Version>
+    <Version>0.11.0</Version>
     <Product>Pantalla TV</Product>
     <Company>Itatagroup</Company>
     <Description>Ver y oír el PC en la tele</Description>

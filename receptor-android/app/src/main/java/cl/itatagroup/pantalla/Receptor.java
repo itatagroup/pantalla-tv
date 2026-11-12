@@ -22,6 +22,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -163,6 +164,7 @@ public class Receptor extends Activity {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         }
         setContentView(R.layout.activity_receptor);
+        respetarRecorte();
         textoEstado = (TextView) findViewById(R.id.estado);
         retardoElegido = indiceDeRetardo(getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_RETARDO, BUFER_POR_DEFECTO_MS));
         video = (SurfaceView) findViewById(R.id.video);
@@ -209,7 +211,7 @@ public class Receptor extends Activity {
         try {
             servidor = new Servidor(pantalla, estado);
             servidor.iniciar();
-            anunciante = new Anunciante(this, nombreDelEquipo());
+            anunciante = new Anunciante(this, nombreDelEquipo(), describirPantalla());
             anunciante.iniciar();
         } catch (Exception e) {
             Log.e(TAG, "no se pudo abrir el puerto " + Protocolo.PUERTO_TCP, e);
@@ -405,6 +407,20 @@ public class Receptor extends Activity {
         super.onStop();
     }
 
+    /**
+     * Android 15 dibuja la app también bajo el recorte de la cámara: la imagen y los botones se quedan fuera de él,
+     * como en las versiones anteriores. Las barras del sistema van ocultas (pantalla completa).
+     */
+    private void respetarRecorte() {
+        if (Build.VERSION.SDK_INT < 35) return;
+        View raiz = ((ViewGroup) findViewById(android.R.id.content)).getChildAt(0);
+        raiz.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets m = insets.getInsets(WindowInsets.Type.displayCutout());
+            v.setPadding(m.left, m.top, m.right, m.bottom);
+            return insets;
+        });
+    }
+
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -556,6 +572,24 @@ public class Receptor extends Activity {
         actualizador.cancelar();
         if (buscando) terminarBusqueda();
         descargando = false;
+    }
+
+    /**
+     * «ancho alto hz tipo» de la pantalla de este equipo, en su modo real (la TV Box sale a 1280×720 a 59,94 Hz aunque
+     * la interfaz se dibuje a otra escala). Con eso el PC ajusta el monitor virtual y los cuadros por segundo.
+     */
+    private String describirPantalla() {
+        try {
+            android.view.Display.Mode modo = getWindowManager().getDefaultDisplay().getMode();
+            int ancho = modo.getPhysicalWidth();
+            int alto = modo.getPhysicalHeight();
+            int hz = Math.round(modo.getRefreshRate());
+            String tipo = esTv ? "tv" : getResources().getConfiguration().smallestScreenWidthDp >= 600 ? "tableta" : "telefono";
+            return ancho > 0 && alto > 0 && hz > 0 ? ancho + " " + alto + " " + hz + " " + tipo : null;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no se pudo leer la pantalla: " + e);
+            return null;
+        }
     }
 
     private String nombreDelEquipo() {

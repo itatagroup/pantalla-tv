@@ -139,7 +139,8 @@ internal static class Monitores
     public const string ElMonitorVirtual = "virtual";
 
     /// <summary>Un monitor listo para transmitir y, si hubo que conectar el virtual, cómo quitarlo al terminar.</summary>
-    internal sealed record Preparado(Monitor Monitor, Action Liberar);
+    /// <param name="Hz">Los Hz del monitor virtual recién conectado (para no mandar más cuadros que eso); null si no se sabe.</param>
+    internal sealed record Preparado(Monitor Monitor, Action Liberar, int? Hz = null);
 
     /// <summary>
     /// ¿Es el monitor virtual? Se usa como segundo monitor de trabajo, donde medio segundo se nota en el ratón: la
@@ -153,7 +154,7 @@ internal static class Monitores
     /// <see cref="Preparado.Liberar"/> lo quita al terminar; si ya estaba conectado, no lo toca.
     /// Lanza <see cref="EmisionException"/> si no se pudo.
     /// </summary>
-    public static Preparado Preparar(string? elegido, Action<string>? avisar = null)
+    public static Preparado Preparar(string? elegido, Action<string>? avisar = null, (int Ancho, int Alto, int Hz)? modoVirtual = null)
     {
         if (elegido != ElMonitorVirtual) return new Preparado(Elegir(elegido), () => { });
 
@@ -165,7 +166,7 @@ internal static class Monitores
             return new Preparado(Elegir(null), () => { });
         }
         avisar?.Invoke("Conectando el monitor virtual…");
-        var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20));
+        var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20), modoVirtual);
         if (resultado == MonitorVirtual.Resultado.Fallo)
             throw new EmisionException("No se pudo conectar el monitor virtual a Windows. Pruébalo en Configuración → Pantalla.");
         var monitor = Listar().FirstOrDefault(m => string.Equals(m.Nombre, virtualMonitor.Dispositivo, StringComparison.OrdinalIgnoreCase));
@@ -177,7 +178,7 @@ internal static class Monitores
         return new Preparado(monitor, () =>
         {
             if (resultado == MonitorVirtual.Resultado.Conectado) virtualMonitor.Liberar();
-        });
+        }, virtualMonitor.ModoConectado?.Hz);
     }
 
     /// <summary>El monitor con ese nombre de Windows o, si ya no existe (se desconectó), el principal.</summary>
