@@ -130,6 +130,8 @@ Una app por vez:
 4. Corre el segundo (`gh release upload actualizaciones … --clobber`): sube el manifiesto al release fijo. Desde ese
    momento las apps la ofrecen cuando alguien busca. La primera vez hay que crear ese release (el script imprime
    el comando).
+5. Si la página de descargas pública enlaza versiones fijas (la de Itatagroup, `itatagroup.cl/utilidades/pantalla-tv/`),
+   actualiza ahí el enlace, el tamaño, la huella y el análisis de VirusTotal.
 
 Para firmar a mano: `node herramientas/firmar-manifiesto.mjs <manifiesto.json> <clave.pem> [--esperada <pública>]`.
 Escribe `<manifiesto.json>.sig`; nunca imprime la clave.
