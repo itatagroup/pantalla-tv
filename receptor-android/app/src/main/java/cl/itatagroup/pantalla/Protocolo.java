@@ -17,6 +17,8 @@ final class Protocolo {
     static final int PING = 0x30;
     static final int PONG = 0x31;
     static final int PEDIR_CLAVE = 0x40;
+    /** Receptor → emisor: quien mira terminó («Terminar» o Atrás). El emisor se detiene sin reintentar. */
+    static final int TERMINAR = 0x41;
 
     /** Tope de una carga: un fotograma clave de 1080p no llega a 2 MB. */
     static final int MAX_CARGA = 8 * 1024 * 1024;

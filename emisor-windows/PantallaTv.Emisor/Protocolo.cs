@@ -26,6 +26,11 @@ internal static class Protocolo
     public const byte Ping = 0x30;
     public const byte Pong = 0x31;
     public const byte PedirClave = 0x40;
+    /// <summary>
+    /// Receptor → emisor: la persona que mira terminó la transmisión («Terminar» o Atrás). El emisor se detiene sin
+    /// reintentar, aunque tenga «Reconectar» activado. Desde la 0.10.0 del emisor y la 0.7.0 del receptor.
+    /// </summary>
+    public const byte Terminar = 0x41;
 
     public const int LargoCabecera = 13;
     public const int MaxCarga = 8 * 1024 * 1024;

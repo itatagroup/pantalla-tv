@@ -37,6 +37,7 @@ Todos con la misma cabecera de 13 bytes (enteros en *big-endian*):
 | `0x30` | `PING` | ambos | 8 bytes cualesquiera (se devuelven iguales) |
 | `0x31` | `PONG` | ambos | los mismos 8 bytes del `PING` |
 | `0x40` | `PEDIR_CLAVE` | receptor → emisor | vacía: «mándame un fotograma clave ya» |
+| `0x41` | `TERMINAR` | receptor → emisor | vacía: la persona que mira terminó («Terminar» o Atrás). El emisor se detiene **sin reintentar**, aunque tenga activado reconectar. El receptor lo manda y recién después cierra. Desde el emisor de Windows 0.10.0, el emisor Android 0.4.0 y el receptor 0.7.0; un emisor anterior lo ignora y se reconecta como ante un corte |
 
 ## Búfer (desde la 0.6.0 del receptor; antes «retardo a propósito»)
 

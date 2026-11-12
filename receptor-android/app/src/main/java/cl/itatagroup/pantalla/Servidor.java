@@ -21,6 +21,7 @@ final class Servidor {
     private final Sesion.Estado estado;
     private final AtomicBoolean ocupado = new AtomicBoolean(false);
     private volatile Socket activa;
+    private volatile Sesion sesionActiva;
     private ServerSocket servidor;
 
     Servidor(Sesion.Pantalla pantalla, Sesion.Estado estado) {
@@ -47,9 +48,14 @@ final class Servidor {
         cerrar(activa);
     }
 
-    /** Corta la sesión en curso (el «Terminar» del teléfono, o Atrás) y sigue esperando la próxima. */
+    /**
+     * Quien mira terminó la sesión («Terminar» o Atrás): se le avisa al emisor para que no se reconecte, y se sigue
+     * esperando la próxima.
+     */
     void terminarSesion() {
-        cerrar(activa);
+        Sesion s = sesionActiva;
+        if (s != null) s.terminar();
+        else cerrar(activa);
     }
 
     private void aceptar() {
@@ -61,10 +67,13 @@ final class Servidor {
                     cerrar(s);
                 } else if (ocupado.compareAndSet(false, true)) {
                     activa = s;
-                    new Thread(new Sesion(s, pantalla, estado, () -> {
+                    Sesion sesion = new Sesion(s, pantalla, estado, () -> {
                         activa = null;
+                        sesionActiva = null;
                         ocupado.set(false);
-                    }), "pantalla-sesion").start();
+                    });
+                    sesionActiva = sesion;
+                    new Thread(sesion, "pantalla-sesion").start();
                 } else {
                     rechazarOcupado(s);
                 }

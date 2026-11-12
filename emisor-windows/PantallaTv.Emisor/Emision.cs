@@ -9,6 +9,9 @@ internal enum Fase { Inactivo, Conectando, Transmitiendo, Reconectando, Error }
 
 internal sealed record EstadoEmision(Fase Fase, string Detalle);
 
+/// <summary>La tele mandó <see cref="Protocolo.Terminar"/>: no es un corte, así que nadie reintenta.</summary>
+internal sealed class TerminadaPorElReceptor() : Exception(Emision.TextoTerminadaPorElReceptor);
+
 /// <param name="AudioPaqS">Paquetes de audio por segundo (50 cuando suena algo; 0 en silencio o sin audio).</param>
 /// <param name="Nativa">Con la tubería nativa: lo que pasó dentro de la captura y el codificador.</param>
 /// <param name="Tuberia">La forma de capturar que produjo estos números (una de <see cref="Tuberias.Todas"/>).</param>
@@ -57,6 +60,8 @@ internal interface IEmision
 
 internal sealed class Emision : IEmision
 {
+    public const string TextoTerminadaPorElReceptor = "La tele terminó la transmisión.";
+
     /// <summary>
     /// Mensajes esperando salir. Si la red no da abasto se tiran cuadros en vez de acumular retraso.
     /// En una sesión interactiva (el monitor virtual, que el receptor muestra sin búfer) la cola es corta (~200 ms a
@@ -173,6 +178,12 @@ internal sealed class Emision : IEmision
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // detenida por el usuario
+        }
+        catch (TerminadaPorElReceptor)
+        {
+            // Quien mira terminó: se informa y se vuelve como si se hubiera detenido aquí (sin reintentar).
+            Notificar(Fase.Inactivo, TextoTerminadaPorElReceptor);
+            return;
         }
         catch (EmisionException e)
         {
@@ -432,6 +443,9 @@ internal sealed class Emision : IEmision
                     // La nativa lo da al momento; ffmpeg no puede (manda uno cada Tuberias.SegundosEntreClaves).
                     _fuente?.PedirClave();
                     break;
+                case Protocolo.Terminar:
+                    Registro.Anotar("el receptor terminó la transmisión");
+                    throw new TerminadaPorElReceptor();
             }
         }
     }

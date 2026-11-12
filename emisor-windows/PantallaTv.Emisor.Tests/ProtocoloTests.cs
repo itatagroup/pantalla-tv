@@ -102,6 +102,65 @@ public class ProtocoloTests
 public class EmisionTests
 {
     /// <summary>Levanta un «receptor» falso que lee el HELLO y contesta lo que se le pida.</summary>
+    /// <summary>Un receptor que acepta el saludo y enseguida manda TERMINAR, como al pulsar «Terminar» en la tele.</summary>
+    private static Receptor ReceptorQueTermina(out Func<int> conexiones)
+    {
+        var escucha = new TcpListener(IPAddress.Loopback, 0);
+        escucha.Start();
+        var puerto = ((IPEndPoint)escucha.LocalEndpoint).Port;
+        var cuenta = 0;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    var cliente = await escucha.AcceptTcpClientAsync();
+                    Interlocked.Increment(ref cuenta);
+                    var red = cliente.GetStream();
+                    await Protocolo.LeerAsync(red, CancellationToken.None);
+                    await red.WriteAsync(Protocolo.Armar(Protocolo.HelloOk, 0, []));
+                    await red.WriteAsync(Protocolo.Armar(Protocolo.Terminar, 0, []));
+                }
+            }
+            catch (Exception e) when (e is SocketException or ObjectDisposedException or IOException)
+            {
+                // la prueba terminó y cerró el puerto
+            }
+        });
+        conexiones = () => Volatile.Read(ref cuenta);
+        return new Receptor("Falso", IPAddress.Loopback, puerto);
+    }
+
+    [Fact]
+    public async Task Terminar_desde_el_receptor_detiene_sin_error()
+    {
+        var receptor = ReceptorQueTermina(out var conexiones);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, typeof(ProtocoloTests).Assembly.Location, Tuberias.X264);
+        var emision = new Emision();
+        var estados = new List<EstadoEmision>();
+        emision.CambioDeEstado += estados.Add;
+
+        await emision.EjecutarAsync(receptor, op, null, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(15));
+
+        Assert.Contains(estados, e => e.Fase == Fase.Inactivo && e.Detalle == Emision.TextoTerminadaPorElReceptor);
+        Assert.DoesNotContain(estados, e => e.Fase == Fase.Error);
+        Assert.Equal(1, conexiones());
+    }
+
+    [Fact]
+    public async Task Terminar_desde_el_receptor_no_reconecta_aunque_este_activado()
+    {
+        var receptor = ReceptorQueTermina(out var conexiones);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, typeof(ProtocoloTests).Assembly.Location, Tuberias.X264);
+        var persistente = new EmisionPersistente { EsperaInicial = TimeSpan.FromMilliseconds(20), EsperaMaxima = TimeSpan.FromMilliseconds(40) };
+
+        await persistente.EjecutarAsync(receptor, op, null, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(15));
+        await Task.Delay(300); // si reintentara, ya habría vuelto a conectar
+
+        Assert.Equal(1, conexiones());
+    }
+
     private static async Task<(Receptor Receptor, Task<Mensaje?> Saludo)> ReceptorFalsoAsync(byte tipoRespuesta, string cargaRespuesta)
     {
         var escucha = new TcpListener(IPAddress.Loopback, 0);

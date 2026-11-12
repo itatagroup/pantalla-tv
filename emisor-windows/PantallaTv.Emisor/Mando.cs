@@ -380,6 +380,8 @@ internal sealed partial class Mando : IDisposable
         }
         if (e.Fase == Fase.Error)
             Aviso?.Invoke(e.Detalle, ToolTipIcon.Error);
+        else if (e.Fase == Fase.Inactivo && e.Detalle == Emision.TextoTerminadaPorElReceptor)
+            Aviso?.Invoke(e.Detalle, ToolTipIcon.Info);
         else if (e.Fase == Fase.Reconectando && antes != Fase.Reconectando)
             Aviso?.Invoke(antes == Fase.Transmitiendo
                     ? "Se cortó la transmisión. Reintentando…"

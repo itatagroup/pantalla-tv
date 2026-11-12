@@ -16,6 +16,7 @@
   <string name="transmitir_a">Transmitir a %1$s</string>
   <string name="detener">Detener</string>
   <string name="sin_transmitir">Sin transmitir</string>
+  <string name="terminado_por_la_tele">La tele terminó la transmisión.</string>
   <string name="falta_ip">Elige una tele o escribe su dirección IP.</string>
   <string name="ip_invalida">Esa no es una dirección IP válida.</string>
   <string name="sin_permiso_pantalla">No diste permiso para capturar la pantalla.</string>

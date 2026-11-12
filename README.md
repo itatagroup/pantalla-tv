@@ -92,6 +92,8 @@ Lo mismo en las tres:
 en horizontal o vertical según la imagen, en pantalla completa y sin apagarse. El botón «Orientación»
 (automática → horizontal → vertical) la fija antes de conectar o durante la sesión, y se recuerda. Tocar la pantalla
 muestra unos segundos una barra con «Búfer», «Orientación» y «Terminar»; Atrás también termina la sesión.
+«Terminar» (o Atrás, también en la tele) le avisa al PC o al teléfono que transmite, que se detiene sin
+reintentar aunque tenga activado «Reconectar». Si el teléfono que transmite se gira, la imagen se adapta sola.
 
 ## Instalar
 

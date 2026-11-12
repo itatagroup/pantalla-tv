@@ -82,6 +82,10 @@ public class ServicioEmision extends Service {
     private int fps;
     private int kbps;
     private boolean conSonido;
+    /** La tele mandó TERMINAR: quien mira terminó, así que no se reconecta. */
+    private volatile boolean terminadoPorLaTele;
+    /** Lado mayor pedido (calidad), para volver a medir al girar el teléfono. */
+    private int ladoMax;
     private int ancho;
     private int alto;
     private int densidad;
@@ -105,7 +109,8 @@ public class ServicioEmision extends Service {
         kbps = intent.getIntExtra(EXTRA_KBPS, 6000);
         conSonido = intent.getBooleanExtra(EXTRA_SONIDO, false)
                 && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        medirPantalla(intent.getIntExtra(EXTRA_LADO, 1280));
+        ladoMax = intent.getIntExtra(EXTRA_LADO, 1280);
+        medirPantalla(ladoMax);
 
         // Primero la notificación del servicio en primer plano; recién entonces Android entrega la captura.
         startForeground(1, notificacion(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
@@ -129,6 +134,7 @@ public class ServicioEmision extends Service {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, null, null, null);
 
         activo = true;
+        terminadoPorLaTele = false;
         detenido = false;
         estado = "Conectando con " + ip + "…";
         hilo = new Thread(this::bucle, "emisor-sesion");
@@ -157,6 +163,11 @@ public class ServicioEmision extends Service {
         while (!detenido) {
             try {
                 sesion();
+            } catch (CambioDeOrientacion e) {
+                // Se giró el teléfono: la pantalla virtual ya tiene el tamaño nuevo y se vuelve a saludar a la tele
+                // con él al tiro, para que encaje la imagen sin franjas de más.
+                Log.i(TAG, "orientación nueva: " + ancho + "x" + alto);
+                continue;
             } catch (FalloDefinitivo e) {
                 principal.post(() -> detener(e.getMessage()));
                 return;
@@ -184,6 +195,25 @@ public class ServicioEmision extends Service {
             return "se cortó la conexión con la tele";
         String m = e.getMessage();
         return m == null || m.isEmpty() ? "se cortó la transmisión" : m;
+    }
+
+    /** El teléfono se giró: hay que volver a empezar la sesión con el tamaño nuevo. */
+    private static final class CambioDeOrientacion extends Exception {}
+
+    /**
+     * Si el teléfono se giró (la pantalla pasó de vertical a horizontal o al revés), mide de nuevo y le da el tamaño
+     * nuevo a la pantalla virtual. Sin esto, la captura sigue con el tamaño del comienzo y Android achica la pantalla
+     * girada dentro de ese marco: a la tele le llega con franjas y recortada.
+     */
+    private boolean cambioLaOrientacion() {
+        DisplayMetrics m = new DisplayMetrics();
+        ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(m);
+        boolean horizontalAhora = m.widthPixels > m.heightPixels;
+        if (horizontalAhora == (ancho > alto)) return false;
+        medirPantalla(ladoMax);
+        VirtualDisplay vd = pantallaVirtual;
+        if (vd != null) vd.resize(ancho, alto, densidad);
+        return true;
     }
 
     /** Un fallo que reintentar no arregla (por ejemplo, otra versión del protocolo). */
@@ -256,6 +286,7 @@ public class ServicioEmision extends Service {
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             byte[] buf = new byte[1 << 20];
             long ultimoPing = 0;
+            long ultimaMirada = 0;
             long ventana = System.nanoTime();
             int cuadros = 0;
             long bytes = 0;
@@ -298,7 +329,15 @@ public class ServicioEmision extends Service {
                     cuadros = 0;
                     bytes = 0;
                 }
-                if (hiloLectura != null && !hiloLectura.isAlive()) throw new IOException("la tele cerró la conexión");
+                if (hiloLectura != null && !hiloLectura.isAlive()) {
+                    if (terminadoPorLaTele) throw new FalloDefinitivo(getString(R.string.terminado_por_la_tele));
+                    throw new IOException("la tele cerró la conexión");
+                }
+                // Dos veces por segundo: ¿se giró el teléfono?
+                if (ahoraNs - ultimaMirada > 500_000_000L) {
+                    ultimaMirada = ahoraNs;
+                    if (cambioLaOrientacion()) throw new CambioDeOrientacion();
+                }
             }
         } finally {
             socket = null;
@@ -333,7 +372,7 @@ public class ServicioEmision extends Service {
         }
     }
 
-    /** Lo que manda la tele: PONG (mantiene viva la conexión) y PEDIR_CLAVE. Termina cuando se corta. */
+    /** Lo que manda la tele: PONG (mantiene viva la conexión), PEDIR_CLAVE y TERMINAR. Termina cuando se corta. */
     private void leer(DataInputStream in, MediaCodec codec) {
         try {
             while (true) {
@@ -342,6 +381,11 @@ public class ServicioEmision extends Service {
                 in.readLong();
                 if (largo < 0 || largo > Protocolo.MAX_CARGA) return;
                 in.skipBytes(largo);
+                if (tipo == Protocolo.TERMINAR) {
+                    // Quien mira terminó: el bucle lo nota al ver este hilo terminado y no reconecta.
+                    terminadoPorLaTele = true;
+                    return;
+                }
                 if (tipo == Protocolo.PEDIR_CLAVE) {
                     Bundle b = new Bundle();
                     b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);

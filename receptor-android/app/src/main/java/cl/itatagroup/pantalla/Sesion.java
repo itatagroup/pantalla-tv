@@ -44,7 +44,7 @@ final class Sesion implements Runnable {
     private final Pantalla pantalla;
     private final Estado estado;
     private final Runnable alTerminar;
-    private DataOutputStream out;
+    private volatile DataOutputStream out;
     private DecodificadorVideo video;
     private ReproductorAudio audio;
     private byte[] configActual;
@@ -197,6 +197,21 @@ final class Sesion implements Runnable {
         } catch (IOException e) {
             Log.w(TAG, "no se pudo pedir fotograma clave: " + e.getMessage());
         }
+    }
+
+    /**
+     * Quien mira terminó: se le avisa al emisor con TERMINAR (para que no se reconecte) y recién después se corta.
+     * Corre en otro hilo: se llama desde la interfaz y escribir en la red ahí está prohibido.
+     */
+    void terminar() {
+        new Thread(() -> {
+            try {
+                if (out != null) enviar(Protocolo.TERMINAR, 0, new byte[0]);
+            } catch (IOException e) {
+                Log.w(TAG, "no se pudo avisar el término: " + e.getMessage());
+            }
+            cortar();
+        }, "pantalla-terminar").start();
     }
 
     /** Cierra el socket: el bucle de lectura termina y libera todo en su {@code finally}. */
