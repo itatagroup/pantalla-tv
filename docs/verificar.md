@@ -30,11 +30,12 @@ apksigner verify --print-certs pantalla-receptor-<versión>.apk
 apksigner verify --print-certs pantalla-emisor-<versión>.apk
 ```
 
-La línea `Signer #1 certificate SHA-256 digest` debe ser:
+La línea `Signer #1 certificate SHA-256 digest` debe ser, según la app (cada una tiene su clave):
 
-```
-<huella SHA-256 del certificado: se publica con el primer release>
-```
+| APK | Certificado | SHA-256 del certificado |
+|---|---|---|
+| `pantalla-receptor-<versión>.apk` | `CN=Pantalla TV` | `0c23e5c877f9a6cfa4d6d3bd7ddd626fe7d4cd879d58041a1070f8a33d074ee6` |
+| `pantalla-emisor-<versión>.apk` | `CN=Pantalla TV emisor` | `3927166f42a76e3bf695fcb7a649fa4416c5fcffa006a38f7cc4aadbea4aa788` |
 
 Si es otra, no instales la APK. Una APK firmada con otra clave tampoco se instalará encima de una versión
 oficial (Android lo rechaza).
