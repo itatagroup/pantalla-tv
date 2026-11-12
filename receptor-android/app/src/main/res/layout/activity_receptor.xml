@@ -36,13 +36,30 @@
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:visibility="gone"/>
+    <!-- En TV, en fila; en un teléfono o tablet el código la pone en columna (en vertical no caben en fila). -->
     <LinearLayout
+        android:id="@+id/fila_botones"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
         android:orientation="horizontal">
       <Button android:id="@+id/boton_retardo" style="@style/Boton"/>
       <Button android:id="@+id/boton_actualizar" style="@style/Boton" android:text="@string/actualizar" android:visibility="gone"/>
       <Button android:id="@+id/boton_buscar" style="@style/Boton" android:text="@string/buscar"/>
     </LinearLayout>
+  </LinearLayout>
+  <!-- Solo en teléfonos y tablets, durante una sesión: aparece unos segundos al tocar la pantalla. -->
+  <LinearLayout
+      android:id="@+id/barra_sesion"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_gravity="bottom|center_horizontal"
+      android:layout_marginBottom="24dp"
+      android:background="#B3000000"
+      android:orientation="horizontal"
+      android:padding="8dp"
+      android:visibility="gone">
+    <Button android:id="@+id/sesion_retardo" style="@style/Boton"/>
+    <Button android:id="@+id/sesion_terminar" style="@style/Boton" android:text="@string/terminar"/>
   </LinearLayout>
 </FrameLayout>

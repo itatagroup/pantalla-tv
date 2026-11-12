@@ -1,11 +1,17 @@
 package cl.itatagroup.pantalla;
 
 import android.app.Activity;
+import android.app.UiModeManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.text.format.Formatter;
 import android.util.Log;
@@ -19,17 +25,24 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import cl.itatagroup.actualizacion.Actualizador;
 
-/** Pantalla del receptor: mientras está abierta, escucha y se anuncia; al recibir vídeo lo muestra completo. */
+/**
+ * Pantalla del receptor: mientras está abierta, escucha y se anuncia; al recibir vídeo lo muestra completo.
+ * La misma app sirve en una TV (control remoto, siempre horizontal) y en un teléfono o tablet (táctil: orientación
+ * libre en espera y según la imagen al transmitir, y una barra con «Terminar» que aparece al tocar).
+ */
 public class Receptor extends Activity {
     private static final String TAG = "Pantalla";
     /** Retardos a propósito que se alternan con OK: 0 = mínima latencia; 2 s = ver vídeos con fluidez. */
     private static final int[] RETARDOS_MS = {0, 500, 1000, 2000};
     private static final String PREFS = "pantalla";
     private static final String PREF_RETARDO = "retardo_ms";
+    /** Cuánto queda a la vista la barra de la sesión (táctil) después de tocar. */
+    private static final long BARRA_MS = 4000;
     /**
      * El manifiesto propio del receptor (contrato común de actualización, docs/actualizaciones.md): cada app del
      * repo tiene el suyo en el release fijo «actualizaciones», así sus versiones no dependen de las otras.
@@ -46,6 +59,16 @@ public class Receptor extends Activity {
     private WifiManager.WifiLock bloqueoWifi;
     private Servidor servidor;
     private Anunciante anunciante;
+
+    /** TV (control remoto) o teléfono/tablet (táctil). Se decide una vez al abrir. */
+    private boolean esTv;
+    /** Tamaño de la imagen de la sesión en curso (0×0 sin sesión): para reencajarla al girar el equipo. */
+    private int anchoImagen;
+    private int altoImagen;
+    private View barraSesion;
+    private Button sesionRetardo;
+    private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
+    private final Runnable ocultarBarra = () -> barraSesion.setVisibility(View.GONE);
 
     // Actualizaciones: solo cuando se pulsa «Buscar actualización» (nunca sola), todo en el hilo de la interfaz y
     // solo en la pantalla de espera.
@@ -84,6 +107,13 @@ public class Receptor extends Activity {
                 textoEstado.setText("");
                 textoEstado.setVisibility(View.VISIBLE);
                 ajustarProporcion(ancho, alto);
+                if (!esTv) {
+                    // Táctil: la pantalla no se apaga mientras se transmite, y se gira según la imagen.
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    setRequestedOrientation(ancho >= alto
+                            ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                }
             });
         }
 
@@ -99,6 +129,12 @@ public class Receptor extends Activity {
             runOnUiThread(() -> {
                 enSesion = false;
                 ajustarProporcion(0, 0);
+                if (!esTv) {
+                    hiloPrincipal.removeCallbacks(ocultarBarra);
+                    barraSesion.setVisibility(View.GONE);
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                }
                 mostrarEsperando();
             });
         }
@@ -107,7 +143,12 @@ public class Receptor extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        esTv = esTelevision();
+        if (esTv) {
+            // En la TV la pantalla de espera también queda encendida (el salvapantallas taparía el aviso).
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        }
         setContentView(R.layout.activity_receptor);
         textoEstado = (TextView) findViewById(R.id.estado);
         retardoElegido = indiceDeRetardo(getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_RETARDO, 0));
@@ -121,6 +162,9 @@ public class Receptor extends Activity {
         botonBuscar.setOnClickListener(v -> buscarActualizacion());
         botonActualizar.setOnClickListener(v -> actualizar());
         actualizador = new Actualizador(this, "itatagroup/pantalla-tv", "receptor-android", "Pantalla");
+        barraSesion = findViewById(R.id.barra_sesion);
+        sesionRetardo = (Button) findViewById(R.id.sesion_retardo);
+        if (!esTv) prepararTactil();
         video.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
@@ -189,10 +233,68 @@ public class Receptor extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
+    /** Atrás durante una sesión la termina (y vuelve a la espera); sin sesión, sale como siempre. */
+    @Override
+    public void onBackPressed() {
+        if (enSesion && servidor != null) {
+            servidor.terminarSesion();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration nueva) {
+        super.onConfigurationChanged(nueva);
+        // Giró el equipo: la imagen se vuelve a encajar cuando el contenedor ya tiene su tamaño nuevo.
+        View padre = (View) video.getParent();
+        padre.post(() -> ajustarProporcion(anchoImagen, altoImagen));
+    }
+
+    private boolean esTelevision() {
+        UiModeManager modo = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
+        return (modo != null && modo.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
+                || getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
+    }
+
+    /** Teléfono o tablet: botones en columna, texto más chico y la barra de la sesión que aparece al tocar. */
+    private void prepararTactil() {
+        ((LinearLayout) findViewById(R.id.fila_botones)).setOrientation(LinearLayout.VERTICAL);
+        textoEstado.setTextSize(22);
+        textoEstado.setPadding(48, 0, 48, 0);
+        sesionRetardo.setOnClickListener(v -> {
+            fijarRetardo((retardoElegido + 1) % RETARDOS_MS.length);
+            mostrarBarra();
+        });
+        findViewById(R.id.sesion_terminar).setOnClickListener(v -> {
+            if (servidor != null) servidor.terminarSesion();
+        });
+        View.OnClickListener tocar = v -> {
+            if (!enSesion) return;
+            if (barraSesion.getVisibility() == View.VISIBLE) {
+                hiloPrincipal.removeCallbacks(ocultarBarra);
+                barraSesion.setVisibility(View.GONE);
+            } else {
+                mostrarBarra();
+            }
+        };
+        video.setOnClickListener(tocar);
+        textoEstado.setOnClickListener(tocar);
+        ((View) video.getParent()).setOnClickListener(tocar);
+    }
+
+    private void mostrarBarra() {
+        sesionRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
+        barraSesion.setVisibility(View.VISIBLE);
+        hiloPrincipal.removeCallbacks(ocultarBarra);
+        hiloPrincipal.postDelayed(ocultarBarra, BARRA_MS);
+    }
+
     private void fijarRetardo(int indice) {
         retardoElegido = indice;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_RETARDO, RETARDOS_MS[indice]).apply();
         botonRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
+        if (sesionRetardo != null) sesionRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
         Toast.makeText(this, getString(R.string.retardo_aviso, descripcionRetardo()), Toast.LENGTH_SHORT).show();
     }
 
@@ -233,6 +335,8 @@ public class Receptor extends Activity {
      * (un teléfono en vertical, un monitor ultrapanorámico). Con 0×0 vuelve a ocupar todo.
      */
     private void ajustarProporcion(int ancho, int alto) {
+        anchoImagen = ancho;
+        altoImagen = alto;
         View padre = (View) video.getParent();
         int w = ViewGroup.LayoutParams.MATCH_PARENT;
         int h = ViewGroup.LayoutParams.MATCH_PARENT;

@@ -47,6 +47,11 @@ final class Servidor {
         cerrar(activa);
     }
 
+    /** Corta la sesión en curso (el «Terminar» del teléfono, o Atrás) y sigue esperando la próxima. */
+    void terminarSesion() {
+        cerrar(activa);
+    }
+
     private void aceptar() {
         while (!servidor.isClosed()) {
             try {

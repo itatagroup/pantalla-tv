@@ -10,7 +10,10 @@
   <uses-feature android:name="android.software.leanback" android:required="false"/>
   <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
   <application android:label="@string/app_name" android:icon="@drawable/icono" android:banner="@drawable/icono" android:allowBackup="false" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-    <activity android:name=".Receptor" android:exported="true" android:launchMode="singleTask" android:screenOrientation="landscape">
+    <!-- La orientación la fija el código (TV: horizontal; teléfono o tablet: libre en espera y según la imagen al
+         transmitir). configChanges: girar el equipo no recrea la actividad, así no se corta la sesión. -->
+    <activity android:name=".Receptor" android:exported="true" android:launchMode="singleTask"
+        android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>

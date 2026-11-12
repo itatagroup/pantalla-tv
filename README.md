@@ -5,7 +5,8 @@ Software libre ([GPL-3.0](LICENSE)), en español.
 
 ## Qué partes tiene
 
-- `receptor-android/` — la app **«Pantalla»** de la tele o TV Box (Android 8+). Muestra y reproduce lo que le llega.
+- `receptor-android/` — la app **«Pantalla»** que recibe (Android 8+): la misma APK sirve en una tele o TV Box (con el
+  control remoto) y en un teléfono o tablet (táctil). Muestra y reproduce lo que le llega.
 - `emisor-windows/` — el programa del PC (**.NET 10**, `PantallaTv.exe`): ventana principal e ícono junto al reloj,
   con instalador. Captura la pantalla y el sonido, los comprime (H.264) y los manda a la tele. Puede transmitir un
   **monitor virtual** (un segundo monitor que solo existe mientras se transmite; ver `docs/monitor-virtual.md`).
@@ -81,9 +82,15 @@ Lo mismo en las tres:
 
 - **PC**: Windows 10 u 11 de 64 bits. El instalador trae el runtime de .NET dentro; no hace falta instalar nada
   más. Para compilarlo, el SDK de .NET 10.
-- **Tele**: Android 8.0 o superior (`minSdk` 26) en la misma red local que el PC. Para el emisor del teléfono,
+- **Tele, TV Box, teléfono o tablet que recibe**: Android 8.0 o superior (`minSdk` 26) en la misma red local que el PC. Para el emisor del teléfono,
   Android 10 o superior.
 - Para compilar las apps de Android: Node.js, un JDK y el SDK de Android (herramientas de compilación y una plataforma).
+
+### En un teléfono o tablet
+
+«Pantalla» aparece en el lanzador normal. En la espera se puede girar el equipo; al llegar una transmisión se pone
+en horizontal o vertical según la imagen, en pantalla completa y sin apagarse. Tocar la pantalla muestra unos
+segundos una barra con «Retardo» y «Terminar»; Atrás también termina la sesión.
 
 ## Instalar
 

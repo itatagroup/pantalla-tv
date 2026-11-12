@@ -7,6 +7,7 @@
   <string name="retardo_ninguno">sin retardo (mínima latencia)</string>
   <string name="retardo_boton">Retardo: %1$s</string>
   <string name="retardo_aviso">Retardo: %1$s</string>
+  <string name="terminar">Terminar</string>
   <!-- Actualizaciones -->
   <string name="buscar">Buscar actualización</string>
   <string name="buscando">Buscando…</string>
