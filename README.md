@@ -102,7 +102,9 @@ reintentar aunque tenga activado «Reconectar». Si el teléfono que transmite s
    formas»**. Puedes comprobar la descarga antes (ver `docs/verificar.md`). Queda un ícono junto al reloj: clic
    derecho › *Transmitir a …*. La casilla «Instalar el monitor virtual» (marcada por defecto) pide permiso de
    administrador e instala el controlador Virtual-Display-Driver incluido; al desinstalar se pregunta si quitarlo.
-   Si algo no funciona: clic derecho › *Diagnóstico para enviar…* (o `PantallaTv.exe --diagnostico`).
+   Si algo no funciona: clic derecho › *Diagnóstico para enviar…* (o `PantallaTv.exe --diagnostico`). El informe
+   incluye los errores registrados con su detalle y una prueba del monitor virtual (lo conecta unos segundos, lo
+   captura y lo vuelve a quitar): mándalo en un issue de GitHub.
 2. **Tele**: instala `pantalla-receptor-<versión>.apk` y ábrela («Pantalla»). Hay que permitir instalar apps de
    **orígenes desconocidos** a la app desde la que la abras (Ajustes › Seguridad), o instalarla con
    `adb install`. El botón «Búfer» de la pantalla de espera (o **OK** del control durante una transmisión)
