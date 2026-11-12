@@ -7,14 +7,20 @@ namespace PantallaTv.Emisor;
 /// y la desinstalación sin ventanas (<c>--silencioso</c>), que es como se prueba.
 /// <code>
 /// PantallaTvSetup.exe                                   asistente
+/// PantallaTvSetup.exe --instalar --actualizar           asistente en modo actualización (lo abre el programa al actualizarse)
 /// PantallaTv.exe --instalar --silencioso [--dir C:\ruta] [--escritorio] [--inicio] [--sin-menu] [--con-ffmpeg] [--con-monitor-virtual] [--id Prueba]
 /// PantallaTv.exe --desinstalar [--silencioso] [--quitar-monitor-virtual] [--id Prueba]
 /// </code>
 /// <c>--con-monitor-virtual</c> instala también el controlador del monitor virtual (pide administrador);
 /// <c>--quitar-monitor-virtual</c> lo quita al desinstalar sin preguntar, solo si lo instaló Pantalla TV.
+/// <c>--actualizar</c> abre el asistente directo en las opciones, con las de la instalación actual, y el botón
+/// «Actualizar». Con el programa abierto, el asistente (y también <c>--silencioso</c>) le pide que se cierre antes de copiar.
 /// </summary>
 internal static class Instalador
 {
+    public const string ArgInstalar = "--instalar";
+    public const string ArgActualizar = "--actualizar";
+
     private static readonly string TituloDesinstalar = $"Desinstalar {Instalacion.Nombre}";
 
     public static int Instalar(string[] args)
@@ -48,7 +54,7 @@ internal static class Instalador
         }
 
         ApplicationConfiguration.Initialize();
-        using var asistente = new AsistenteInstalacion(id);
+        using var asistente = new AsistenteInstalacion(id, args.Contains(ArgActualizar));
         Application.Run(asistente);
         return asistente.Instalado ? 0 : 2;
     }
@@ -155,15 +161,21 @@ internal sealed class AsistenteInstalacion : Form
     private readonly CheckBox _abrir = new() { Text = "Abrir Pantalla TV ahora", Checked = true, AutoSize = true };
 
     private int _pagina;
-    private bool _ocupado; // instalando el controlador: no se puede cerrar a medias
+    private bool _ocupado; // cerrando el programa o instalando el controlador: no se puede cerrar a medias
     private string? _instaladoEn;
+    /// <summary>Ya estaba instalado: se conservan sus opciones (accesos, inicio con Windows, sin agregar el monitor virtual).</summary>
+    private readonly bool _yaInstalado;
+    /// <summary>Lo abrió el programa para actualizarse: empieza en las opciones y el botón dice «Actualizar».</summary>
+    private readonly bool _actualizar;
 
     public bool Instalado => _instaladoEn is not null;
 
-    public AsistenteInstalacion(string id)
+    public AsistenteInstalacion(string id, bool actualizar = false)
     {
         _id = id;
-        Text = $"Instalar {Instalacion.Nombre} {Instalacion.Version}";
+        _yaInstalado = Instalacion.CarpetaInstalada(id) is not null;
+        _actualizar = actualizar && _yaInstalado;
+        Text = $"{(_actualizar ? "Actualizar" : "Instalar")} {Instalacion.Nombre} {Instalacion.Version}";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -202,7 +214,7 @@ internal sealed class AsistenteInstalacion : Form
         }
         Controls.Add(pie);
         Controls.Add(cabecera);
-        Mostrar(0);
+        Mostrar(_actualizar ? 1 : 0);
     }
 
     private static Label Parrafo(string texto, int alto, Color? color = null) => new()
@@ -251,6 +263,16 @@ internal sealed class AsistenteInstalacion : Form
               "winget install Gyan.FFmpeg";
         var color = TextoSuave;
 
+        // Al actualizar o reinstalar se conserva lo que hay: los accesos y el inicio con Windows como están, y el
+        // monitor virtual sin marcar (si no está, es porque se desmarcó antes; se puede instalar desde el programa).
+        if (_yaInstalado)
+        {
+            _menuInicio.Checked = Instalacion.TieneAccesoMenuInicio(_id);
+            _escritorio.Checked = Instalacion.TieneAccesoEscritorio(_id);
+            _inicio.Checked = Instalacion.IniciaConWindows(_id);
+            _monitorVirtual.Checked = false;
+        }
+
         // Si ya está (lo instaló el usuario o una versión anterior), no hay nada que ofrecer.
         var conMonitorVirtual = !Controlador.Instalado();
         _monitorVirtual.Visible = conMonitorVirtual;
@@ -266,7 +288,10 @@ internal sealed class AsistenteInstalacion : Form
             c.Dock = DockStyle.Top;
             c.Padding = new Padding(0, 4, 0, 4);
         }
+        var abierto = Instalacion.CarpetaInstalada(_id) is { } instalada && Instalacion.AbiertosDesde(instalada) > 0;
         return Apilar(
+            Parrafo(abierto ? "Pantalla TV está abierto: se cierra solo al " + (_actualizar ? "actualizar" : "instalar") +
+                              " (si estaba transmitiendo, se detiene) y se vuelve a abrir al terminar." : "", abierto ? 44 : 0, TextoSuave),
             Parrafo("Carpeta de instalación:", 24),
             fila,
             new Panel { Dock = DockStyle.Top, Height = 14 },
@@ -289,9 +314,14 @@ internal sealed class AsistenteInstalacion : Form
         _pagina = pagina;
         for (var i = 0; i < _paginas.Length; i++) _paginas[i].Visible = i == pagina;
         _paginas[pagina].BringToFront();
-        _titulo.Text = pagina switch { 0 => $"Instalar {Instalacion.Nombre}", 1 => "Opciones de instalación", _ => "Instalación terminada" };
-        _atras.Visible = pagina == 1;
-        _siguiente.Text = pagina switch { 1 => "Instalar", 2 => "Finalizar", _ => "Siguiente" };
+        _titulo.Text = pagina switch
+        {
+            0 => $"Instalar {Instalacion.Nombre}",
+            1 => _actualizar ? $"Actualizar a la versión {Instalacion.Version}" : "Opciones de instalación",
+            _ => _actualizar ? "Actualización terminada" : "Instalación terminada",
+        };
+        _atras.Visible = pagina == 1 && !_actualizar;
+        _siguiente.Text = pagina switch { 1 => _actualizar ? "Actualizar" : "Instalar", 2 => "Finalizar", _ => "Siguiente" };
         _cancelar.Visible = pagina < 2;
     }
 
@@ -306,9 +336,7 @@ internal sealed class AsistenteInstalacion : Form
                 _ = InstalarAhoraAsync();
                 break;
             default:
-                if (_abrir.Checked && _instaladoEn is not null)
-                    Process.Start(new ProcessStartInfo(_instaladoEn) { UseShellExecute = true });
-                Close();
+                Close(); // abre el programa al cerrarse (ver OnFormClosed)
                 break;
         }
     }
@@ -319,18 +347,69 @@ internal sealed class AsistenteInstalacion : Form
         base.OnFormClosing(e);
     }
 
+    /// <summary>
+    /// «Abrir Pantalla TV ahora» vale también si se cierra con la X en la última página: al actualizar, el programa se
+    /// cerró para copiarse y tiene que volver.
+    /// </summary>
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        base.OnFormClosed(e);
+        if (_abrir.Checked && _instaladoEn is not null) Abrir(_instaladoEn);
+    }
+
+    private static void Abrir(string ruta)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(ruta) { UseShellExecute = true })?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // se puede abrir desde el menú Inicio
+        }
+    }
+
+    /// <summary>
+    /// Si el programa está abierto desde la carpeta de destino, le pide que se cierre y espera (fuera del hilo de la
+    /// ventana: puede tardar unos segundos si está transmitiendo). True si había uno abierto.
+    /// </summary>
+    private async Task<bool> CerrarElAbiertoAsync(string carpeta)
+    {
+        string destino;
+        try { destino = Path.GetFullPath(carpeta); }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+        if (Instalacion.AbiertosDesde(destino) == 0) return false;
+
+        _titulo.Text = "Cerrando Pantalla TV…";
+        _atras.Enabled = _siguiente.Enabled = _cancelar.Enabled = false;
+        _ocupado = true;
+        try { await Task.Run(() => Instalacion.CerrarAbiertos(destino, Instalacion.EsperaCierre)); }
+        finally
+        {
+            _ocupado = false;
+            _atras.Enabled = _siguiente.Enabled = _cancelar.Enabled = true;
+            Mostrar(_pagina);
+        }
+        return true; // si no se cerró, Instalar da el mensaje
+    }
+
     private async Task InstalarAhoraAsync()
     {
         var op = new OpcionesInstalacion(_carpeta.Text.Trim(), _menuInicio.Checked, _escritorio.Checked, _inicio.Checked, _id,
             ConFfmpegAdjunto: _ffmpegAdjunto.Visible && _ffmpegAdjunto.Checked);
+        UseWaitCursor = true;
+        var habiaAbierto = await CerrarElAbiertoAsync(op.Carpeta);
         try
         {
-            UseWaitCursor = true;
             _instaladoEn = Instalacion.Instalar(op, Environment.ProcessPath!);
         }
         catch (InstalacionException e)
         {
             UseWaitCursor = false;
+            // Se cerró para copiar y no se pudo instalar: se vuelve a abrir el que había, para no dejar al usuario sin él.
+            if (habiaAbierto && Instalacion.CarpetaInstalada(_id) is { } anterior && Instalacion.AbiertosDesde(anterior) == 0
+                && File.Exists(Path.Combine(anterior, Instalacion.Ejecutable)))
+                Abrir(Path.Combine(anterior, Instalacion.Ejecutable));
             MessageBox.Show(this, e.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -367,7 +446,7 @@ internal sealed class AsistenteInstalacion : Form
         UseWaitCursor = false;
 
         _resultado.Text =
-            $"Pantalla TV quedó instalado en:\n{Path.GetDirectoryName(_instaladoEn)}\n\n" +
+            $"Pantalla TV {Instalacion.Version} quedó instalado en:\n{Path.GetDirectoryName(_instaladoEn)}\n\n" +
             (monitor is null ? "" : monitor + "\n\n") +
             "Vive como un ícono junto al reloj: clic derecho → «Transmitir a…».\n\n" +
             "En la tele, abre la app «Pantalla» antes de transmitir. La primera vez Windows puede preguntar si " +

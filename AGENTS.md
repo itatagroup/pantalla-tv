@@ -16,10 +16,10 @@ Ver y oír la pantalla de un PC o un teléfono en la tele, por la red local. Tre
   `PantallaTv.Captura.Prueba` (+ `.Tests`: herramienta de medición, no va en el instalador) y `controlador/`
   (Virtual-Display-Driver incluido, ver su `LEEME.md`).
 - `receptor-android/` y `emisor-android/` — apps Android en Java, **sin Gradle y sin dependencias**.
-- `herramientas/` — `empaquetar.ps1` (arma `dist/`), `build-android.mjs` (build compartido de las dos apps),
+- `herramientas/` — `empaquetar.ps1` (arma `dist/`), `publicar.ps1` y `firmar-manifiesto.mjs` (arman un release), `build-android.mjs` (build compartido de las dos apps),
   scripts de medición.
 - `docs/` — `protocolo.md` (el contrato entre emisor y receptor), `monitor-virtual.md`, `prueba-otro-pc.md`,
-  `verificar.md`.
+  `verificar.md`, `actualizaciones.md` (el contrato de las actualizaciones y cómo publicar una versión).
 
 Arquitectura del emisor: la ventana principal y el menú de la bandeja no tienen lógica propia; todo pasa por
 `Mando.cs` (estado, ajustes y acciones). Un cambio de opciones va ahí. La captura propia está en
@@ -38,10 +38,14 @@ respaldo opcional (`IFuenteVideo`, en `FuenteVideo.cs`).
   `herramientas/build-android.mjs`. Necesitan una clave propia en `keystore/` (ver el README, «Compilar»).
 - Todo lo publicable: `powershell -File herramientas/empaquetar.ps1` → `dist/` (ignorado por git). Se niega a
   seguir si falta un archivo del controlador o su huella no coincide con `SHA256SUMS.txt`.
+- Un release: `powershell -File herramientas/publicar.ps1 -Version x.y.z` → `dist/publicar/vx.y.z/` (instalador,
+  APK del receptor, `version.json` firmado con `herramientas/firmar-manifiesto.mjs`, `SHA256SUMS.txt`, `notas.md`).
+  No publica nada: imprime el `gh release create` para que lo corra el mantenedor. Ver `docs/actualizaciones.md`.
 
 ## Reglas
 
-1. **Sin telemetría ni conexiones nuevas a internet.** Solo red local: UDP 5601 (descubrimiento) y TCP 5600
+1. **Sin telemetría ni conexiones nuevas a internet.** La única salida a internet es la búsqueda de
+   actualizaciones (opcional, se puede apagar; contrato en `docs/actualizaciones.md`). Lo demás, solo red local: UDP 5601 (descubrimiento) y TCP 5600
    (transmisión). Nada de servicios de terceros ni cuentas.
 2. **Apps de Android sin dependencias** (nada de AndroidX): los APK deben seguir siendo diminutos.
 3. **Pruebas en verde** antes de dar algo por terminado, y pruebas para lo que se cambie.

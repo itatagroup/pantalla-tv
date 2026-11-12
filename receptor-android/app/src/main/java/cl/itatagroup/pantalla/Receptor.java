@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.format.Formatter;
 import android.util.Log;
@@ -17,6 +20,7 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -28,6 +32,11 @@ public class Receptor extends Activity {
     private static final int[] RETARDOS_MS = {0, 500, 1000, 2000};
     private static final String PREFS = "pantalla";
     private static final String PREF_RETARDO = "retardo_ms";
+    private static final String PREF_AUTO = "actualizar_auto";
+    /** Dónde se publica la versión nueva (contrato común de actualización). */
+    private static final String MANIFIESTO =
+            "https://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json";
+    private static final long REVISAR_CADA_MS = 24L * 60 * 60 * 1000;
 
     private volatile Surface superficie;
     private volatile int retardoElegido;
@@ -38,6 +47,21 @@ public class Receptor extends Activity {
     private WifiManager.WifiLock bloqueoWifi;
     private Servidor servidor;
     private Anunciante anunciante;
+
+    // Actualizaciones: todo en el hilo de la interfaz, y solo mientras está la pantalla de espera.
+    private View controles;
+    private TextView aviso;
+    private Button botonRetardo;
+    private Button botonActualizar;
+    private Button botonAuto;
+    private Actualizador actualizador;
+    private Actualizador.Oferta oferta;
+    private boolean descargando;
+    private boolean abierta;
+    /** elapsedRealtime de la última consulta; 0 = consultar apenas se pueda. */
+    private long ultimaRevision;
+    private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
+    private final Runnable revisar = this::revisarActualizacion;
 
     private final Sesion.Pantalla pantalla = new Sesion.Pantalla() {
         @Override
@@ -58,6 +82,9 @@ public class Receptor extends Activity {
                 // La superficie aún guarda el último cuadro de la sesión anterior: se queda tapada (fondo
                 // sólido, sin texto) hasta que llegue el primer cuadro de esta.
                 enSesion = true;
+                // Una sesión manda: se corta cualquier consulta o descarga y se esconden los botones.
+                detenerActualizaciones();
+                controles.setVisibility(View.GONE);
                 textoEstado.setText("");
                 textoEstado.setVisibility(View.VISIBLE);
                 ajustarProporcion(ancho, alto);
@@ -89,6 +116,15 @@ public class Receptor extends Activity {
         textoEstado = (TextView) findViewById(R.id.estado);
         retardoElegido = indiceDeRetardo(getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_RETARDO, 0));
         video = (SurfaceView) findViewById(R.id.video);
+        controles = findViewById(R.id.controles);
+        aviso = (TextView) findViewById(R.id.aviso);
+        botonRetardo = (Button) findViewById(R.id.boton_retardo);
+        botonActualizar = (Button) findViewById(R.id.boton_actualizar);
+        botonAuto = (Button) findViewById(R.id.boton_auto);
+        botonRetardo.setOnClickListener(v -> fijarRetardo((retardoElegido + 1) % RETARDOS_MS.length));
+        botonAuto.setOnClickListener(v -> cambiarAutomaticas());
+        botonActualizar.setOnClickListener(v -> actualizar());
+        actualizador = new Actualizador(this, "itatagroup/pantalla-tv", "receptor-android", "Pantalla");
         video.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(SurfaceHolder holder) {
@@ -116,6 +152,8 @@ public class Receptor extends Activity {
         bloqueoWifi = wifi.createWifiLock(modo, "pantalla-tv");
         bloqueoWifi.setReferenceCounted(false);
         bloqueoWifi.acquire();
+        abierta = true;
+        ultimaRevision = 0; // al abrir se consulta de nuevo
 
         try {
             servidor = new Servidor(pantalla, estado);
@@ -144,7 +182,10 @@ public class Receptor extends Activity {
         if (pedido >= 0) fijarRetardo(indiceDeRetardo(pedido));
     }
 
-    /** OK en el control remoto alterna el retardo: 0 → 0,5 s → 1 s → 2 s → 0. */
+    /**
+     * OK en el control remoto alterna el retardo: 0 → 0,5 s → 1 s → 2 s → 0. En la pantalla de espera lo hace el
+     * botón «Retardo», que tiene el foco al abrir; durante una sesión no hay botones y OK llega aquí.
+     */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
@@ -157,7 +198,7 @@ public class Receptor extends Activity {
     private void fijarRetardo(int indice) {
         retardoElegido = indice;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_RETARDO, RETARDOS_MS[indice]).apply();
-        if (!enSesion && textoEstado.getVisibility() == View.VISIBLE) mostrarEsperando();
+        botonRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
         Toast.makeText(this, getString(R.string.retardo_aviso, descripcionRetardo()), Toast.LENGTH_SHORT).show();
     }
 
@@ -173,6 +214,8 @@ public class Receptor extends Activity {
 
     @Override
     protected void onStop() {
+        abierta = false;
+        detenerActualizaciones();
         if (anunciante != null) anunciante.detener();
         if (servidor != null) servidor.detener();
         if (bloqueoWifi != null && bloqueoWifi.isHeld()) bloqueoWifi.release();
@@ -217,9 +260,130 @@ public class Receptor extends Activity {
         String detalle = ip == 0
                 ? getString(R.string.sin_red)
                 : getString(R.string.esperando_detalle, nombreDelEquipo(), Formatter.formatIpAddress(ip));
-        textoEstado.setText(getString(R.string.esperando) + "\n\n" + detalle + "\n\n"
-                + getString(R.string.retardo_linea, descripcionRetardo()));
+        textoEstado.setText(getString(R.string.esperando) + "\n\n" + detalle);
         textoEstado.setVisibility(View.VISIBLE);
+        botonRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
+        botonAuto.setText(automaticas() ? R.string.auto_si : R.string.auto_no);
+        mostrarOferta();
+        controles.setVisibility(View.VISIBLE);
+        View foco = getCurrentFocus();
+        if (foco == null || !foco.isShown()) botonRetardo.requestFocus();
+        programarRevision();
+    }
+
+    // --- actualizaciones (ver Actualizador y el README, «Actualizaciones») ---
+
+    private boolean automaticas() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_AUTO, true);
+    }
+
+    /** En «No» no se hace ninguna conexión: se corta lo que esté en curso y no se programa nada. */
+    private void cambiarAutomaticas() {
+        boolean activas = !automaticas();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_AUTO, activas).apply();
+        botonAuto.setText(activas ? R.string.auto_si : R.string.auto_no);
+        detenerActualizaciones();
+        oferta = null;
+        ultimaRevision = 0;
+        mostrarOferta();
+        programarRevision();
+    }
+
+    /** Siguiente consulta: ya si nunca se hizo, o 24 h después de la última. Solo en espera y con «Sí». */
+    private void programarRevision() {
+        hiloPrincipal.removeCallbacks(revisar);
+        if (!abierta || enSesion || descargando || !automaticas()) return;
+        long espera = ultimaRevision == 0
+                ? 0
+                : Math.max(0, ultimaRevision + REVISAR_CADA_MS - SystemClock.elapsedRealtime());
+        hiloPrincipal.postDelayed(revisar, espera);
+    }
+
+    private void revisarActualizacion() {
+        if (!abierta || enSesion || descargando || !automaticas()) return;
+        ultimaRevision = SystemClock.elapsedRealtime();
+        actualizador.comprobar(urlManifiesto(), new Actualizador.AlComprobar() {
+            @Override
+            public void hayVersion(Actualizador.Oferta nueva) {
+                oferta = nueva;
+                mostrarOferta();
+            }
+
+            @Override
+            public void alDia() {
+                oferta = null;
+                mostrarOferta();
+            }
+
+            @Override
+            public void fallo() {
+                // Sin aviso en pantalla (el detalle queda en el registro); se reintenta en 24 h.
+            }
+        });
+        programarRevision();
+    }
+
+    /** Para pruebas: {@code am start -n cl.itatagroup.pantalla/.Receptor --es manifiesto_url https://…}. */
+    private String urlManifiesto() {
+        String pedida = getIntent().getStringExtra("manifiesto_url");
+        return pedida != null && !pedida.isEmpty() ? pedida : MANIFIESTO;
+    }
+
+    private void mostrarOferta() {
+        if (descargando) return;
+        if (oferta == null) {
+            boolean teniaFoco = botonActualizar.hasFocus();
+            aviso.setVisibility(View.GONE);
+            botonActualizar.setVisibility(View.GONE);
+            if (teniaFoco) botonRetardo.requestFocus();
+            return;
+        }
+        aviso.setText(oferta.notas.isEmpty()
+                ? getString(R.string.hay_version_sin_notas, oferta.version)
+                : getString(R.string.hay_version, oferta.version, oferta.notas));
+        aviso.setVisibility(View.VISIBLE);
+        botonActualizar.setVisibility(View.VISIBLE);
+    }
+
+    private void actualizar() {
+        if (oferta == null || descargando || enSesion) return;
+        if (!actualizador.puedeInstalar()) {
+            boolean abierto = Actualizador.abrirPermisoDeInstalacion(this);
+            aviso.setText(abierto ? R.string.falta_permiso : R.string.sin_ajuste_permiso);
+            aviso.setVisibility(View.VISIBLE);
+            return;
+        }
+        descargando = true;
+        hiloPrincipal.removeCallbacks(revisar);
+        final Actualizador.Oferta pedida = oferta;
+        aviso.setText(getString(R.string.descargando, pedida.version, 0));
+        actualizador.descargarEInstalar(pedida, new Actualizador.AlDescargar() {
+            @Override
+            public void avance(int porcentaje) {
+                aviso.setText(getString(R.string.descargando, pedida.version, porcentaje));
+            }
+
+            @Override
+            public void instalando() {
+                descargando = false;
+                aviso.setText(R.string.confirmar_instalacion);
+                programarRevision();
+            }
+
+            @Override
+            public void fallo() {
+                descargando = false;
+                aviso.setText(R.string.descarga_fallida);
+                programarRevision();
+            }
+        });
+    }
+
+    /** Corta consultas y descargas en curso (una sesión que llega, la app que se cierra, «No»). */
+    private void detenerActualizaciones() {
+        hiloPrincipal.removeCallbacks(revisar);
+        actualizador.cancelar();
+        descargando = false;
     }
 
     private String nombreDelEquipo() {

@@ -23,7 +23,7 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new TrayApp(mostrar: !oculto));
+        Application.Run(new TrayApp(mostrar: !oculto, Cli.UrlManifiesto(args)));
         return 0;
     }
 }

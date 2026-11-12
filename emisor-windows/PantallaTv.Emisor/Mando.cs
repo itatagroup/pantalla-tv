@@ -36,7 +36,7 @@ internal sealed class EnVivo
 /// y la ventana principal: los dos leen y escriben estos <see cref="Ajustes"/> y llaman a estas acciones, y se
 /// enteran de cualquier cambio por <see cref="Cambio"/> (siempre en el hilo de la interfaz).
 /// </summary>
-internal sealed class Mando : IDisposable
+internal sealed partial class Mando : IDisposable
 {
     public static readonly int[] Retardos = [0, 500, 1000, 2000];
     public const string SinTransmitir = "Sin transmitir";
@@ -53,23 +53,32 @@ internal sealed class Mando : IDisposable
 
     /// <param name="tvs">Las TV que se ven en la red ahora (el <see cref="Descubridor"/>).</param>
     /// <param name="propio">Lo que se libera con el mando (el descubridor).</param>
-    public Mando(Ajustes ajustes, SynchronizationContext ui, Func<IReadOnlyList<Receptor>> tvs, IDisposable? propio = null)
+    /// <param name="comprobador">El que busca versiones nuevas (null = no se busca: las pruebas que no lo usan).</param>
+    /// <param name="reloj">Para programar las búsquedas (las pruebas ponen uno propio).</param>
+    public Mando(Ajustes ajustes, SynchronizationContext ui, Func<IReadOnlyList<Receptor>> tvs, IDisposable? propio = null,
+        ComprobadorActualizaciones? comprobador = null, TimeProvider? reloj = null)
     {
         Ajustes = ajustes;
         _ui = ui;
         _tvs = tvs;
         _propio = propio;
+        _comprobador = comprobador;
+        _reloj = reloj ?? TimeProvider.System;
         PuedeIniciarConWindows = Instalacion.CorreDesdeLaInstalacion(); // no cambia mientras corre
     }
 
-    /// <summary>El del programa de bandeja: con los ajustes guardados y escuchando los anuncios de las TV.</summary>
-    public static Mando Crear(SynchronizationContext ui, out string? problemaRed)
+    /// <summary>
+    /// El del programa de bandeja: con los ajustes guardados, escuchando los anuncios de las TV y buscando versiones
+    /// nuevas (si está activado). <paramref name="manifiesto"/> cambia de dónde se lee el <c>version.json</c> (pruebas).
+    /// </summary>
+    public static Mando Crear(SynchronizationContext ui, out string? problemaRed, Uri? manifiesto = null)
     {
         var descubridor = new Descubridor();
         descubridor.Iniciar();
         problemaRed = descubridor.Problema;
-        var mando = new Mando(Ajustes.Cargar(), ui, descubridor.Vigentes, descubridor);
+        var mando = new Mando(Ajustes.Cargar(), ui, descubridor.Vigentes, descubridor, ComprobadorActualizaciones.Crear(manifiesto));
         if (mando.PuedeIniciarConWindows) Instalacion.ActualizarInicioConWindows(Environment.ProcessPath!);
+        mando.IniciarActualizaciones();
         return mando;
     }
 
@@ -352,6 +361,7 @@ internal sealed class Mando : IDisposable
     /// <summary>Al salir: detiene y espera a que la tarea desconecte el monitor virtual.</summary>
     public void Terminar()
     {
+        _cancelarActualizacion.Cancel();
         Detener();
         try
         {
@@ -402,6 +412,7 @@ internal sealed class Mando : IDisposable
             Fase = Fase.Inactivo;
             Estado = SinTransmitir;
         }
+        AlTerminarTransmision(); // lo de las actualizaciones que esperaba a que no se transmitiera
         Cambio?.Invoke();
     }
 
@@ -423,5 +434,6 @@ internal sealed class Mando : IDisposable
     {
         _propio?.Dispose();
         _cancelar?.Dispose();
+        LiberarActualizaciones();
     }
 }

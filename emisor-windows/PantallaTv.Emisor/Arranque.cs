@@ -33,6 +33,9 @@ internal static partial class Arranque
 
     private static string NombreMostrar => "PantallaTv.Emisor.Mostrar" + Sufijo;
 
+    /// <summary>Lo que usa el instalador para pedirle al programa abierto que se cierre (desde el 0.8.0).</summary>
+    private static string NombreCerrar => "PantallaTv.Emisor.Cerrar" + Sufijo;
+
     /// <summary>
     /// La segunda instancia le pide a la primera que muestre su ventana. Una versión anterior al 0.7.1 no
     /// escucha: no pasa nada, como antes.
@@ -50,10 +53,27 @@ internal static partial class Arranque
     }
 
     /// <summary>La primera instancia escucha los pedidos de <see cref="PedirQueSeMuestre"/>; <paramref name="mostrar"/> corre en un hilo del sistema.</summary>
-    public static IDisposable EscucharPedidos(Action mostrar)
+    public static IDisposable EscucharPedidos(Action mostrar) => Escuchar(NombreMostrar, mostrar);
+
+    /// <summary>
+    /// El instalador le pide al programa abierto que se cierre (como «Salir»: detiene la transmisión y desconecta el
+    /// monitor virtual), para poder reemplazar el ejecutable. Devuelve false si no hay nadie escuchando (no está
+    /// abierto, o es anterior al 0.8.0).
+    /// </summary>
+    public static bool PedirQueSeCierre()
     {
-        var aviso = new EventWaitHandle(false, EventResetMode.AutoReset, NombreMostrar);
-        var registro = ThreadPool.RegisterWaitForSingleObject(aviso, (_, _) => mostrar(), null, Timeout.Infinite, executeOnlyOnce: false);
+        if (!EventWaitHandle.TryOpenExisting(NombreCerrar, out var aviso)) return false;
+        using (aviso) aviso.Set();
+        return true;
+    }
+
+    /// <summary>El programa escucha los pedidos de <see cref="PedirQueSeCierre"/>; <paramref name="cerrar"/> corre en un hilo del sistema.</summary>
+    public static IDisposable EscucharCierre(Action cerrar) => Escuchar(NombreCerrar, cerrar);
+
+    private static IDisposable Escuchar(string nombre, Action accion)
+    {
+        var aviso = new EventWaitHandle(false, EventResetMode.AutoReset, nombre);
+        var registro = ThreadPool.RegisterWaitForSingleObject(aviso, (_, _) => accion(), null, Timeout.Infinite, executeOnlyOnce: false);
         return new Escucha(aviso, registro);
     }
 

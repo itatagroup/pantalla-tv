@@ -18,10 +18,10 @@ La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con 
 
 ## Qué NO hace
 
-- **Sin telemetría, sin cuentas, sin servidores de terceros.** No se conecta a internet: no hay actualizaciones
-  automáticas, ni estadísticas de uso, ni reporte de errores. Está planeada una **búsqueda de actualizaciones
-  opcional y que se puede apagar**: cuando llegue, esta sección dirá exactamente qué consulta, a dónde, y cómo
-  desactivarla.
+- **Sin telemetría, sin cuentas, sin servidores de terceros.** No hay estadísticas de uso ni reporte de errores.
+  Lo único que sale a internet es la **búsqueda de actualizaciones**, que se puede apagar: un GET sin datos al
+  manifiesto firmado del último release de este repositorio en GitHub (detalle en «Actualizaciones», más abajo).
+  Nada se instala sin que lo confirmes.
 - Lo único que usa la red es esto, y solo dentro de tu red local:
   - **Descubrimiento**: la tele manda cada 2 s un anuncio **UDP** de difusión (broadcast) al puerto **5601**; el
     PC escucha ahí para mostrar las teles que ve (o puedes escribir la IP a mano).
@@ -31,9 +31,56 @@ La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con 
   rendimiento**: escribe un archivo CSV en tu carpeta de datos (fps, Mb/s, uso de CPU y memoria) para que tú lo
   revises. No envía nada a ninguna parte.
 - El permiso `INTERNET` de las apps de Android es el que Android exige para abrir cualquier conexión de red,
-  también las locales; no se usa para salir a internet.
+  también las locales. La app del teléfono no lo usa para salir a internet; el receptor de la tele, solo para
+  buscar su propia actualización (ver «Actualizaciones», se puede apagar).
 - La conexión **no va cifrada ni exige contraseña** (ver `SECURITY.md`): úsalo en una red de confianza.
 - Mientras el PC transmite con sonido queda en silencio y el audio sale por la tele; al detener, vuelve.
+
+## Actualizaciones
+
+El contrato común (formato del manifiesto, firma, reglas de verificación) y cómo se publica una versión están en
+[docs/actualizaciones.md](docs/actualizaciones.md).
+
+### Emisor de Windows
+
+- **Qué consulta y a dónde**: con un GET sin cookies ni datos del equipo (User-Agent `PantallaTv/<versión>`),
+  `https://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json` y su firma
+  `version.json.sig` (GitHub redirige al release más nuevo). Cada uno se lee con un tope de 64 KB y 10 s.
+- **Cada cuánto**: 20 s después de abrir el programa y luego cada 24 h mientras siga abierto. Nada más.
+- **Qué comprueba**: la firma (ECDSA P-256) con la clave pública que viene dentro del programa, que el manifiesto
+  sea de este repositorio, que la versión sea **mayor** que la instalada y que la descarga sea de
+  `https://github.com/itatagroup/pantalla-tv/releases/download/`. Si algo no cuadra no ofrece nada (solo lo anota
+  en el registro local, `%LOCALAPPDATA%\PantallaTv\registro.txt`).
+- **Si hay versión nueva**: una banda en la ventana y un globo junto al reloj, «Hay una versión nueva (x.y.z):
+  notas», con «Actualizar ahora» y «Después» (que no vuelve a avisar de esa versión hasta el próximo inicio).
+  **Nunca mientras transmites**: si aparece durante una transmisión, espera a que termine.
+- **Actualizar ahora**: descarga el instalador (`PantallaTvSetup-x.y.z.exe`, solo HTTPS) con el avance a la vista
+  en `%LOCALAPPDATA%\PantallaTv\actualizaciones\`, comprueba su tamaño exacto y su SHA-256 contra el manifiesto
+  firmado (si no coinciden, lo borra) y abre el **asistente de instalación, visible**, con tus opciones actuales
+  (accesos directos, inicio con Windows). Al apretar «Actualizar», el asistente cierra Pantalla TV, lo reemplaza y
+  lo vuelve a abrir. Nada se instala en silencio.
+- **Cómo apagarlo**: «Avanzado» › «Buscar actualizaciones» en la ventana, o el mismo ajuste en el menú del ícono
+  (viene activado). Apagado no hace **ninguna** conexión a internet. Ahí mismo está «Buscar ahora».
+- Para probar con otro manifiesto (la firma se exige igual): `PantallaTv.exe --manifiesto-url https://…/version.json`.
+
+### Receptor de la TV
+
+- **Qué consulta y a dónde**: con un GET sin cookies ni datos del equipo (User-Agent `Pantalla/<versión>`), el
+  manifiesto firmado del último release de este repositorio:
+  `https://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json` y su firma `version.json.sig`.
+  Comprueba la firma con la clave pública que viene en la app; si no es válida, o si falla la red, no muestra
+  nada.
+- **Cada cuánto**: al abrir «Pantalla» y después cada 24 h, **solo mientras está en la pantalla de espera**. Nunca
+  durante una transmisión: si llega una, corta lo que estuviera haciendo.
+- **Cómo apagarlo**: en la pantalla de espera, el botón «Actualizaciones automáticas: Sí/No» (con las flechas del
+  control y OK). En «No» no hace ninguna conexión a internet. Viene en «Sí».
+- **Si hay versión nueva**: aparece «Hay una versión nueva (x.y.z): notas» y el botón «Actualizar». Al pulsarlo
+  descarga la APK del release (solo HTTPS) con el avance en pantalla, comprueba su tamaño y su SHA-256 contra el
+  manifiesto firmado y se la entrega a Android, que **siempre pide confirmar** la instalación; nada se instala
+  solo. La primera vez Android pide además permitir «Instalar apps desconocidas» para Pantalla: la app lo explica
+  y abre ese ajuste. Por eso pide el permiso `REQUEST_INSTALL_PACKAGES`.
+- Para probar con otro manifiesto (la firma se exige igual):
+  `adb shell am start -n cl.itatagroup.pantalla/.Receptor --es manifiesto_url https://…/version.json`.
 
 ## Requisitos
 
@@ -53,7 +100,8 @@ La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con 
    Si algo no funciona: clic derecho › *Diagnóstico para enviar…* (o `PantallaTv.exe --diagnostico`).
 2. **Tele**: instala `pantalla-receptor-<versión>.apk` y ábrela («Pantalla»). Hay que permitir instalar apps de
    **orígenes desconocidos** a la app desde la que la abras (Ajustes › Seguridad), o instalarla con
-   `adb install`. El botón **OK** del control cambia el retardo (sin retardo / 0,5 / 1 / 2 s).
+   `adb install`. El botón «Retardo» de la pantalla de espera (o **OK** del control durante una transmisión)
+   cambia el retardo (sin retardo / 0,5 / 1 / 2 s).
 3. **Teléfono**: instala `pantalla-emisor-<versión>.apk`, abre «Enviar a Pantalla» y elige la tele.
 
 ## Compilar

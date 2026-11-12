@@ -5,13 +5,17 @@
     pantalla-receptor-<versión>.apk la app «Pantalla» para la tele o TV Box
     SHA256SUMS.txt                  huellas para comprobar las descargas
 
-  Uso:  powershell -File herramientas/empaquetar.ps1 [-SinPruebas] [-ConFfmpeg C:\ruta\ffmpeg.exe]
+  Uso:  powershell -File herramientas/empaquetar.ps1 [-SinPruebas] [-SoloEmisor] [-ConFfmpeg C:\ruta\ffmpeg.exe]
+
+  -SoloEmisor arma solo el instalador (sin compilar las apps de Android): lo usa publicar.ps1, que toma el APK del
+  receptor ya compilado. dist/publicar/ (los releases que arma publicar.ps1) no se borra.
 
   -ConFfmpeg copia ese ffmpeg.exe junto al instalador; el asistente lo instala con el programa.
   Ojo con el tamaño (la compilación «full» pesa ~217 MB) y con su licencia (GPL) antes de publicarlo.
 #>
 param(
   [switch]$SinPruebas,
+  [switch]$SoloEmisor,
   [string]$ConFfmpeg
 )
 $ErrorActionPreference = "Stop"
@@ -50,7 +54,7 @@ if (-not $SinPruebas) { Correr "Pruebas del emisor" { dotnet test $sln -c Releas
 $version = ([xml](Get-Content $proyecto)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if (-not $version) { throw "No encuentro <Version> en $proyecto" }
 
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+if (Test-Path $dist) { Get-ChildItem $dist | Where-Object Name -ne "publicar" | Remove-Item -Recurse -Force }
 $tmp = Join-Path $dist "tmp"
 Correr "Publicar el emisor $version (un solo archivo, con el runtime dentro)" {
   dotnet publish $proyecto -c Release -r win-x64 --self-contained true --nologo -v q -o $tmp `
@@ -66,6 +70,7 @@ if ($ConFfmpeg) {
   Copy-Item $ConFfmpeg (Join-Path $dist "ffmpeg.exe")
 }
 
+if (-not $SoloEmisor) {
 Push-Location (Join-Path $raiz "receptor-android")
 try {
   Correr "Compilar el receptor Android" { node tools/build.mjs | Out-Null }
@@ -81,6 +86,7 @@ if (Test-Path (Join-Path $emisorAndroid "tools\build.mjs")) {
     $v = (Get-Content version.json | ConvertFrom-Json).versionName
     Copy-Item "out\emisor.apk" (Join-Path $dist "pantalla-emisor-$v.apk")
   } finally { Pop-Location }
+}
 }
 
 $sumas = Get-ChildItem $dist -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {

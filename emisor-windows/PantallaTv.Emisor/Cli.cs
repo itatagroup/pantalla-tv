@@ -13,7 +13,13 @@ namespace PantallaTv.Emisor;
 /// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
 /// PantallaTv.exe --monitor-virtual estado|conectar|desconectar
+/// PantallaTv.exe --manifiesto-url https://servidor/version.json
 /// </code>
+/// <c>--manifiesto-url</c> (para probar las actualizaciones) abre el programa de bandeja normal, pero lee el
+/// <c>version.json</c> de esa dirección https (y la firma de la misma más <c>.sig</c>) en vez del último release de GitHub.
+/// No abre ningún hueco: la firma con la clave del proyecto se exige igual, y la descarga tiene que seguir siendo de
+/// <c>https://github.com/itatagroup/pantalla-tv/releases/download/</c>. Si el programa ya estaba abierto no cambia nada
+/// (la segunda instancia solo le pide que muestre su ventana): ciérralo antes o usa <c>PANTALLATV_PERFIL</c>.
 /// </summary>
 internal static class Cli
 {
@@ -209,6 +215,15 @@ internal static class Cli
         {
             return 3; // el mensaje ya salió por CambioDeEstado
         }
+    }
+
+    /// <summary>La dirección de <c>--manifiesto-url</c>, si es https absoluta; si no, se ignora (y queda en el registro).</summary>
+    internal static Uri? UrlManifiesto(string[] args)
+    {
+        if (Texto(args, "--manifiesto-url") is not { } texto) return null;
+        if (Uri.TryCreate(texto, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps) return url;
+        Registro.Anotar($"actualizaciones: --manifiesto-url ignorado (no es una dirección https): {texto}");
+        return null;
     }
 
     private static string? Texto(string[] args, string nombre)

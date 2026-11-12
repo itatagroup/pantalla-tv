@@ -25,6 +25,12 @@ internal sealed class VentanaPrincipal : Form
     private readonly Punto _punto = new();
     private readonly Label _estado = new() { UseMnemonic = false, AutoSize = false };
 
+    // Banda de versión nueva (o de su descarga). Lee Mando.NovedadOfrecida y Mando.AvanceDescarga.
+    private readonly Tarjeta _banda = new() { Hundida = true, AccessibleName = "Versión nueva", AccessibleRole = AccessibleRole.Grouping };
+    private readonly Label _textoBanda = new() { UseMnemonic = false, AutoSize = false };
+    private readonly Boton _actualizar = new() { Text = "Actuali&zar ahora", Estilo = EstiloBoton.Primario };
+    private readonly Boton _despues = new() { Text = "Después", Estilo = EstiloBoton.Secundario, UseMnemonic = false };
+
     private readonly Tarjeta _principal = new() { AccessibleName = "Transmisión", AccessibleRole = AccessibleRole.Grouping };
     private readonly Label _etiquetaTv = new() { Text = "Transmitir &a" };
     private readonly Lista _tvs = new() { AccessibleName = "Transmitir a" };
@@ -60,6 +66,9 @@ internal sealed class VentanaPrincipal : Form
     private readonly Boton _diagnostico = new() { Text = "Diag&nóstico para enviar…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaDiagnostico = new() { UseMnemonic = false };
     private readonly Label _notaBloqueoAvanzado = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
+    private readonly Casilla _buscarActualizaciones = new() { Text = "B&uscar actualizaciones (una vez al día, en GitHub)" };
+    private readonly Boton _buscarAhora = new() { Text = "Buscar a&hora", Estilo = EstiloBoton.Secundario };
+    private readonly Label _notaActualizaciones = new() { UseMnemonic = false };
 
     private readonly Label _version = new() { Text = $"Pantalla TV {Instalacion.Version}", UseMnemonic = false };
     private readonly Boton _botonSalir = new() { Text = "Salir", Estilo = EstiloBoton.Secundario, UseMnemonic = false };
@@ -98,18 +107,21 @@ internal sealed class VentanaPrincipal : Form
     {
         SuspendLayout();
         Controls.Add(_contenido);
-        _contenido.Controls.AddRange([_punto, _estado, _principal, _ajustes, _expansor, _avanzado, _version, _botonSalir]);
+        _contenido.Controls.AddRange([_punto, _estado, _banda, _principal, _ajustes, _expansor, _avanzado, _version, _botonSalir]);
+        _banda.Controls.AddRange([_textoBanda, _actualizar, _despues]);
         _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _boton]);
         _vivo.Controls.AddRange([.. _vivoEtiquetas, .. _vivoValores]);
         _ajustes.Controls.AddRange([_notaBloqueo, _etiquetaRetardo, _retardo, _notaRetardo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
-        _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico]);
+        _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
+            _buscarActualizaciones, _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
-        OrdenTab(_principal, _ajustes, _expansor, _avanzado, _botonSalir);
+        OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
+        OrdenTab(_actualizar, _despues);
         OrdenTab(_etiquetaTv, _tvs, _escribirIp, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_etiquetaRetardo, _retardo, _sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico);
-        foreach (var l in Notas().Append(_version).Append(_estado)) l.TabStop = false;
+        OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarActualizaciones, _buscarAhora);
+        foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
         foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaRetardo, _etiquetaForma, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
         AcceptButton = _boton;
@@ -128,6 +140,10 @@ internal sealed class VentanaPrincipal : Form
         _expansor.Click += (_, _) => { _abierto = !_abierto; Refrescar(); if (_abierto) _contenido.ScrollControlIntoView(_avanzado); };
         _abrirTelemetria.Click += (_, _) => Mando.AbrirTelemetria();
         _diagnostico.Click += (_, _) => _mando.Diagnosticar();
+        _actualizar.Click += (_, _) => _mando.ActualizarAhora();
+        _despues.Click += (_, _) => _mando.PosponerActualizacion();
+        _buscarActualizaciones.CheckedChanged += (_, _) => { if (!_refrescando) _mando.CambiarBuscarActualizaciones(_buscarActualizaciones.Checked); };
+        _buscarAhora.Click += (_, _) => _mando.BuscarActualizacionesAhora();
         _botonSalir.Click += (_, _) => _salir();
         ResumeLayout(false);
     }
@@ -246,6 +262,15 @@ internal sealed class VentanaPrincipal : Form
             _punto.ForeColor = p.DeFase(m.Fase);
             _estado.AccessibleName = "Estado: " + _estado.Text;
 
+            // Versión nueva: se ofrece (nunca mientras se transmite) o se ve el avance de su descarga.
+            var novedad = m.NovedadOfrecida;
+            _banda.Visible = novedad is not null || m.AvanceDescarga is not null;
+            _actualizar.Visible = _despues.Visible = novedad is not null;
+            _textoBanda.Text = novedad is { } n ? $"Hay una versión nueva ({n.Texto})" + (n.Notas.Length > 0 ? $": {n.Notas}" : ".")
+                : m.AvanceDescarga is { } avance ? $"Descargando la versión nueva… {avance} %"
+                : "";
+            _banda.AccessibleName = _textoBanda.Text;
+
             // Destinos.
             var destinos = m.Destinos();
             _tvs.Cargar([.. destinos.Select(d => new ElementoLista(d.TextoLista, d))],
@@ -298,6 +323,13 @@ internal sealed class VentanaPrincipal : Form
             _inicio.Checked = puedeInicio && m.IniciaConWindows;
             _notaInicio.Visible = !puedeInicio;
 
+            _buscarActualizaciones.Checked = m.Ajustes.BuscarActualizaciones;
+            _buscarAhora.Enabled = m.PuedeBuscarActualizaciones;
+            _buscarAhora.Text = m.BuscandoActualizaciones ? "Buscando…" : "Buscar a&hora";
+            _notaActualizaciones.Text = !m.Ajustes.BuscarActualizaciones
+                ? "Apagado: el programa no se conecta a internet."
+                : m.EstadoActualizaciones ?? $"Mira el último release publicado en GitHub; no envía nada. Versión instalada: {Instalacion.Version}.";
+
             _diagnostico.Enabled = m.PuedeDiagnosticar;
             _notaDiagnostico.Text = m.Diagnosticando ? "Preparando el diagnóstico (unos segundos)…"
                 : transmitiendo ? "Detén la transmisión para hacer el diagnóstico: prueba la captura."
@@ -324,6 +356,7 @@ internal sealed class VentanaPrincipal : Form
     {
         var clave = string.Join("|", DeviceDpi, _abierto, _vivo.Visible, _estado.Text, _vivoValores[0].Text, _vivoValores[1].Text,
             _vivoValores[5].Text, _pantallas.Controls.Count, _instalarVirtual.Text, _notaDiagnostico.Text,
+            _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text,
             string.Concat(Notas().Select(n => n.Visible ? "1" : "0")));
         if (clave == _distribucion) return;
         _distribucion = clave;
@@ -398,7 +431,7 @@ internal sealed class VentanaPrincipal : Form
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaBloqueo, _notaRetardo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado];
+        [_notaTvs, _notaVirtual, _notaBloqueo, _notaRetardo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -441,6 +474,27 @@ internal sealed class VentanaPrincipal : Form
         Poner(_punto, margen + S(2), y + S(8), S(12), S(12));
         Poner(_estado, margen + S(22), y, anchoEstado, altoEstado);
         y += altoEstado + S(12);
+
+        // Banda de versión nueva.
+        if (_banda.Visible)
+        {
+            var by = relleno;
+            var altoTextoBanda = Math.Max(S(22), AltoTexto(_textoBanda, interior));
+            Poner(_textoBanda, relleno, by, interior, altoTextoBanda);
+            by += altoTextoBanda;
+            if (_actualizar.Visible)
+            {
+                by += S(10);
+                var anchoActualizar = TextRenderer.MeasureText(_actualizar.Text.Replace("&", ""), _actualizar.Font).Width + S(34);
+                var anchoDespues = TextRenderer.MeasureText(_despues.Text, _despues.Font).Width + S(34);
+                Poner(_actualizar, relleno - S(3), by - S(3), anchoActualizar + S(6), altoBoton + S(6));
+                Poner(_despues, relleno + anchoActualizar + S(8) - S(3), by - S(3), anchoDespues + S(6), altoBoton + S(6));
+                by += altoBoton;
+            }
+            by += relleno;
+            Poner(_banda, margen, y, anchoTarjeta, by);
+            y += by + S(12);
+        }
 
         // Tarjeta principal.
         var cy = relleno;
@@ -512,6 +566,12 @@ internal sealed class VentanaPrincipal : Form
             Poner(_diagnostico, relleno + mitad + S(8) - S(3), cy - S(3), interior - mitad - S(8) + S(6), altoBoton + S(6));
             cy += altoBoton;
             cy = Nota(_notaDiagnostico, relleno + mitad + S(8), cy + S(6), interior - mitad - S(8));
+            cy += S(14);
+            cy = Casilla(_buscarActualizaciones, relleno, cy, interior);
+            var anchoBuscar = TextRenderer.MeasureText(_buscarAhora.Text.Replace("&", ""), _buscarAhora.Font).Width + S(34);
+            Poner(_buscarAhora, relleno - S(3), cy + S(4) - S(3), anchoBuscar + S(6), altoBoton + S(6));
+            cy += S(4) + altoBoton;
+            cy = Nota(_notaActualizaciones, relleno, cy + S(6), interior);
             cy += relleno;
             Poner(_avanzado, margen, y, anchoTarjeta, cy);
             y += cy + S(12);
@@ -590,7 +650,7 @@ internal sealed class VentanaPrincipal : Form
         Dibujo.Vigente = p;
         BackColor = _contenido.BackColor = p.Fondo;
         foreach (var t in new[] { _principal, _ajustes, _avanzado }) t.BackColor = p.Superficie;
-        _vivo.BackColor = p.SuperficieSuave;
+        _vivo.BackColor = _banda.BackColor = p.SuperficieSuave;
         foreach (var c in Todos(_contenido))
         {
             if (c is Tarjeta) continue;

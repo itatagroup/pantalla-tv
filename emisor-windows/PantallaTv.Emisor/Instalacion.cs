@@ -89,16 +89,42 @@ internal static class Instalacion
         return abiertos;
     }
 
+    /// <summary>Lo que se espera a que el programa abierto se cierre: «Salir» espera hasta 10 s a que termine la transmisión.</summary>
+    public static readonly TimeSpan EsperaCierre = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// Si el programa está abierto desde <paramref name="carpeta"/>, le pide que se cierre (ver
+    /// <see cref="Arranque.PedirQueSeCierre"/>) y espera a que suelte el ejecutable. True si ya no queda ninguno
+    /// abierto. Una versión anterior al 0.8.0 no escucha el pedido: hay que cerrarla a mano.
+    /// </summary>
+    public static bool CerrarAbiertos(string carpeta, TimeSpan espera)
+    {
+        if (AbiertosDesde(carpeta) == 0) return true;
+        if (!Arranque.PedirQueSeCierre()) return false;
+        var reloj = Stopwatch.StartNew();
+        while (reloj.Elapsed < espera)
+        {
+            Thread.Sleep(250);
+            if (AbiertosDesde(carpeta) == 0) return true;
+        }
+        return false;
+    }
+
     public static string Instalar(OpcionesInstalacion op, string rutaOrigen)
     {
         if (string.IsNullOrWhiteSpace(op.Carpeta)) throw new InstalacionException("Falta la carpeta de instalación.");
         var carpeta = Path.GetFullPath(op.Carpeta);
         var destino = Path.Combine(carpeta, Ejecutable);
+        var mismo = string.Equals(Path.GetFullPath(rutaOrigen), destino, StringComparison.OrdinalIgnoreCase);
+        // Con el programa abierto el ejecutable está en uso y la copia fallaría: se le pide que se cierre antes.
+        if (!mismo && File.Exists(destino) && !CerrarAbiertos(carpeta, EsperaCierre))
+            throw new InstalacionException(
+                "Pantalla TV sigue abierto y no se cerró solo (las versiones anteriores a la 0.8.0 no saben hacerlo). " +
+                "Ciérralo (clic derecho en su ícono junto al reloj → Salir) y vuelve a intentarlo.");
         try
         {
             Directory.CreateDirectory(carpeta);
-            if (!string.Equals(Path.GetFullPath(rutaOrigen), destino, StringComparison.OrdinalIgnoreCase))
-                File.Copy(rutaOrigen, destino, overwrite: true);
+            if (!mismo) Copiar(rutaOrigen, destino);
 
             // El ffmpeg.exe que acompaña al instalador solo se instala si se pidió: después es el que
             // el programa ejecuta, y en la carpeta de descargas puede haber uno de cualquier origen.
@@ -136,6 +162,31 @@ internal static class Instalacion
         }
         return destino;
     }
+
+    /// <summary>
+    /// Recién cerrado el programa, Windows (o un antivirus que revisa el archivo) puede tardar un instante en soltar el
+    /// ejecutable: unos reintentos antes de dar el error.
+    /// </summary>
+    private static void Copiar(string origen, string destino)
+    {
+        for (var intento = 1; ; intento++)
+        {
+            try
+            {
+                File.Copy(origen, destino, overwrite: true);
+                return;
+            }
+            catch (IOException) when (intento < 5)
+            {
+                Thread.Sleep(400);
+            }
+        }
+    }
+
+    /// <summary>¿Existe el acceso del menú Inicio? (al actualizar, el asistente conserva lo que había).</summary>
+    public static bool TieneAccesoMenuInicio(string id = IdPorDefecto) => File.Exists(RutaMenuInicio(id));
+
+    public static bool TieneAccesoEscritorio(string id = IdPorDefecto) => File.Exists(RutaEscritorio(id));
 
     /// <summary>Lo único que el instalador pone en la carpeta, y lo único que la desinstalación borra de ella.</summary>
     private static readonly string[] ArchivosPropios = [Ejecutable, "ffmpeg.exe"];

@@ -5,6 +5,18 @@
   <string name="esperando_detalle">En el PC elige «%1$s» (%2$s)</string>
   <string name="sin_red">Sin conexión a la red</string>
   <string name="retardo_ninguno">sin retardo (mínima latencia)</string>
-  <string name="retardo_linea">Retardo: %1$s · OK en el control lo cambia</string>
+  <string name="retardo_boton">Retardo: %1$s</string>
   <string name="retardo_aviso">Retardo: %1$s</string>
+  <!-- Actualizaciones -->
+  <string name="auto_si">Actualizaciones automáticas: Sí</string>
+  <string name="auto_no">Actualizaciones automáticas: No</string>
+  <string name="actualizar">Actualizar</string>
+  <string name="hay_version">Hay una versión nueva (%1$s): %2$s</string>
+  <string name="hay_version_sin_notas">Hay una versión nueva (%1$s)</string>
+  <string name="descargando">Descargando la versión %1$s… %2$d %%</string>
+  <string name="confirmar_instalacion">Confirma la instalación en la pantalla de Android</string>
+  <string name="descarga_fallida">No se pudo descargar la actualización. Prueba más tarde.</string>
+  <string name="falta_permiso">Para actualizar, permite «Instalar apps desconocidas» para Pantalla en los ajustes que se abren y vuelve a pulsar «Actualizar».</string>
+  <string name="sin_ajuste_permiso">Para actualizar, permite «Instalar apps desconocidas» para Pantalla en los ajustes de Android.</string>
+  <string name="actualizacion_no_instalada">No se pudo instalar la actualización</string>
 </resources>

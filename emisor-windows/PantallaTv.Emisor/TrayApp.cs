@@ -15,14 +15,16 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Icon _iconoActivo = CrearIcono(Color.FromArgb(34, 160, 80));
     private readonly Icon _iconoReconectando = CrearIcono(Color.FromArgb(214, 140, 20));
     private readonly IDisposable _pedidos;
+    private readonly IDisposable _cierre;
     private VentanaPrincipal? _ventana;
     private readonly Font _negrita;
 
     /// <param name="mostrar">Abrir la ventana al empezar (no al iniciar con Windows).</param>
-    public TrayApp(bool mostrar)
+    /// <param name="manifiesto">Otra dirección para el <c>version.json</c> (<c>--manifiesto-url</c>, para pruebas).</param>
+    public TrayApp(bool mostrar, Uri? manifiesto = null)
     {
         var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-        _mando = Mando.Crear(ui, out var problemaRed);
+        _mando = Mando.Crear(ui, out var problemaRed, manifiesto);
         _icono = new NotifyIcon
         {
             Icon = _iconoReposo,
@@ -33,10 +35,14 @@ internal sealed class TrayApp : ApplicationContext
         _negrita = new Font(_menu.Font, FontStyle.Bold);
         _menu.Opening += (_, _) => ConstruirMenu();
         _icono.DoubleClick += (_, _) => MostrarVentana();
+        // El globo de una versión nueva no tiene botones: hacer clic en él abre la ventana, que tiene la banda.
+        _icono.BalloonTipClicked += (_, _) => MostrarVentana();
         _mando.Cambio += AlCambiar;
         _mando.Aviso += (texto, icono) => _icono.ShowBalloonTip(icono == ToolTipIcon.Error ? 6000 : 4000, "Pantalla TV", texto, icono);
         // Otra instancia (abrir el programa desde el menú Inicio con este ya corriendo) pide mostrar la ventana.
         _pedidos = Arranque.EscucharPedidos(() => ui.Post(_ => MostrarVentana(), null));
+        // El instalador (al actualizar o reinstalar) pide que se cierre para poder reemplazar el ejecutable.
+        _cierre = Arranque.EscucharCierre(() => ui.Post(_ => Salir(), null));
 
         if (mostrar) MostrarVentana();
         if (problemaRed is { } p)
@@ -73,6 +79,15 @@ internal sealed class TrayApp : ApplicationContext
         _menu.Items.Clear();
         _menu.Items.Add(new ToolStripMenuItem("Abrir Pantalla TV", null, (_, _) => MostrarVentana()) { Font = _negrita });
         _menu.Items.Add(new ToolStripMenuItem(m.Estado) { Enabled = false });
+        if (m.NovedadOfrecida is { } novedad)
+        {
+            _menu.Items.Add(new ToolStripMenuItem($"Actualizar ahora a la versión {novedad.Texto}", null, (_, _) => m.ActualizarAhora()) { Font = _negrita });
+            _menu.Items.Add($"Después (no volver a avisar de la {novedad.Texto} hasta el próximo inicio)", null, (_, _) => m.PosponerActualizacion());
+        }
+        else if (m.AvanceDescarga is { } avance)
+        {
+            _menu.Items.Add(new ToolStripMenuItem($"Descargando la versión nueva… {avance} %") { Enabled = false });
+        }
         _menu.Items.Add(new ToolStripSeparator());
 
         if (m.Transmitiendo)
@@ -135,6 +150,9 @@ internal sealed class TrayApp : ApplicationContext
         // «Abrir al iniciar Windows» solo se ofrece al programa instalado (en la ventana aparece bloqueado, con el porqué).
         if (m.PuedeIniciarConWindows)
             Alternable("Abrir al iniciar Windows", m.IniciaConWindows, m.CambiarInicioConWindows);
+        Alternable("Buscar actualizaciones (una vez al día, en GitHub)", m.Ajustes.BuscarActualizaciones, m.CambiarBuscarActualizaciones);
+        _menu.Items.Add(new ToolStripMenuItem(m.BuscandoActualizaciones ? "Buscando actualizaciones…" : "Buscar actualizaciones ahora", null,
+            (_, _) => m.BuscarActualizacionesAhora()) { Enabled = m.PuedeBuscarActualizaciones });
 
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem($"Pantalla TV {Instalacion.Version}") { Enabled = false });
@@ -166,6 +184,7 @@ internal sealed class TrayApp : ApplicationContext
         if (disposing)
         {
             _pedidos.Dispose();
+            _cierre.Dispose();
             _ventana?.Dispose();
             _icono.Dispose();
             _menu.Dispose();
