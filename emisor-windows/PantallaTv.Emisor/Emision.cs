@@ -24,7 +24,7 @@ internal sealed record Estadisticas(double Fps, double Mbps, int Tirados, double
 /// <param name="LatidoFps">Tubería nativa: con la pantalla quieta, cuadros por segundo que se recodifican (ver <see cref="Nativa.TuberiaNativa"/>).</param>
 /// <param name="Cursor">Tubería nativa: dibujar el puntero (ffmpeg lo dibuja siempre).</param>
 internal sealed record OpcionesEmision(
-    int Fps, int Kbps, int Ancho, int Alto, int RetardoMs, string? RutaFfmpeg, string? Tuberia = null,
+    int Fps, int Kbps, int Ancho, int Alto, bool Interactiva, string? RutaFfmpeg, string? Tuberia = null,
     bool ConAudio = false, bool SilenciarPc = false, int SegClave = 0, string? ExtraCodificador = null,
     int Monitor = 0, int Adaptador = 0, string? MonitorNombre = null,
     int LatidoFps = Nativa.TuberiaNativa.LatidoPorDefecto, bool Cursor = true)
@@ -59,8 +59,9 @@ internal sealed class Emision : IEmision
 {
     /// <summary>
     /// Mensajes esperando salir. Si la red no da abasto se tiran cuadros en vez de acumular retraso.
-    /// Sin retardo la cola es corta (~200 ms a 60 fps): lo que se acumula ahí es latencia pura. Con
-    /// retardo a propósito el receptor ya tiene buffer, así que se tolera más (~2 s) antes de tirar.
+    /// En una sesión interactiva (el monitor virtual, que el receptor muestra sin búfer) la cola es corta (~200 ms a
+    /// 60 fps): lo que se acumula ahí es latencia pura. En las demás el receptor suele tener búfer, así que se tolera
+    /// más (~2 s) antes de tirar.
     /// </summary>
     internal const int ColaBajaLatencia = 12;
     internal const int ColaConRetardo = 120;
@@ -109,14 +110,13 @@ internal sealed class Emision : IEmision
     {
         _telemetria = telemetria;
         // Los valores vienen de la línea de comandos o de ajustes.json: se acotan a lo que cabe en el
-        // HELLO (fps en 1 byte, retardo en 2) y a lo que el receptor acepta.
+        // HELLO (fps en 1 byte) y a lo que el receptor acepta.
         op = op with
         {
             Fps = Math.Clamp(op.Fps, 1, 120),
             Kbps = Math.Clamp(op.Kbps, 500, 50_000),
-            RetardoMs = Math.Clamp(op.RetardoMs, 0, Protocolo.RetardoMaxMs),
         };
-        _cola = Channel.CreateBounded<byte[]>(op.RetardoMs > 0 ? ColaConRetardo : ColaBajaLatencia);
+        _cola = Channel.CreateBounded<byte[]>(op.Interactiva ? ColaBajaLatencia : ColaConRetardo);
         Notificar(Fase.Conectando, $"Conectando con {receptor.Nombre}…");
         try
         {
@@ -247,7 +247,7 @@ internal sealed class Emision : IEmision
     /// <param name="tasaAudio">0 = sin audio.</param>
     private static async Task SaludarAsync(NetworkStream red, OpcionesEmision op, int tasaAudio, int canales, CancellationToken ct)
     {
-        await red.WriteAsync(Protocolo.ArmarHello(op.Ancho, op.Alto, op.Fps, tasaAudio, canales, "0000", op.RetardoMs), ct);
+        await red.WriteAsync(Protocolo.ArmarHello(op.Ancho, op.Alto, op.Fps, tasaAudio, canales, "0000", op.Interactiva), ct);
 
         using var limite = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limite.CancelAfter(TimeSpan.FromSeconds(5));

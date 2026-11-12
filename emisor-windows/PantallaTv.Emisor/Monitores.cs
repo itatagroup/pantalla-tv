@@ -142,15 +142,11 @@ internal static class Monitores
     internal sealed record Preparado(Monitor Monitor, Action Liberar);
 
     /// <summary>
-    /// El retardo que pide el emisor. El monitor virtual se usa como segundo monitor de trabajo, donde
-    /// medio segundo se nota en el ratón: transmite con retardo 0 salvo que el usuario haya pedido otro
-    /// a mano (<paramref name="pedido"/>, p. ej. <c>--retardo</c>). El principal y los demás monitores
-    /// usan el de los ajustes. (La TV puede subirlo: el efectivo es el mayor de los dos, ver protocolo.md.)
+    /// ¿Es el monitor virtual? Se usa como segundo monitor de trabajo, donde medio segundo se nota en el ratón: la
+    /// sesión va como interactiva y el receptor la muestra sin búfer (ver protocolo.md, «Búfer»).
     /// </summary>
     public static bool EsElVirtual(Monitor monitor) =>
         MonitorVirtual.Detectar() is { } v && string.Equals(v.Dispositivo, monitor.Nombre, StringComparison.OrdinalIgnoreCase);
-
-    public static int RetardoPara(bool esVirtual, int? pedido, int ajustes) => pedido ?? (esVirtual ? 0 : ajustes);
 
     /// <summary>
     /// Deja listo el monitor elegido. Con el virtual lo conecta al escritorio (si no lo estaba) y

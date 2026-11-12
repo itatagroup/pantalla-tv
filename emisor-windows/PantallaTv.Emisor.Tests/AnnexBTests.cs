@@ -103,7 +103,7 @@ public class AnnexBTests
 
 public class TuberiasTests
 {
-    private static readonly OpcionesEmision Op = new(60, 8000, 1920, 1080, 0, null);
+    private static readonly OpcionesEmision Op = new(60, 8000, 1920, 1080, false, null);
 
     [Fact]
     public void La_de_GPU_no_copia_el_cuadro_a_memoria()
@@ -215,7 +215,7 @@ public class RevisionTests
             await cliente.GetStream().WriteAsync(Protocolo.Armar(Protocolo.HelloErr, 0, "ocupado"u8));
             return hello;
         });
-        var op = new OpcionesEmision(300, 8000, 1920, 1080, 70_000, null);
+        var op = new OpcionesEmision(300, 8000, 1920, 1080, false, null);
 
         await Assert.ThrowsAsync<EmisionException>(() => new Emision().EjecutarAsync(
             new Receptor("Falso", System.Net.IPAddress.Loopback, puerto), op, null, CancellationToken.None));
@@ -224,7 +224,7 @@ public class RevisionTests
         escucha.Stop();
         Assert.NotNull(hello);
         Assert.Equal(120, hello.Carga[5]); // fps: 300 no cabe en un byte
-        Assert.Equal(Protocolo.RetardoMaxMs, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(hello.Carga.AsSpan(15, 2)));
+        Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(hello.Carga.AsSpan(15, 2))); // el búfer lo decide el receptor
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class RevisionTests
             await red.WriteAsync(Protocolo.Armar(Protocolo.HelloOk, 0, []));
             try { while (await Protocolo.LeerAsync(red, CancellationToken.None) is not null) { } } catch (IOException) { }
         });
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, falso, Tuberias.X264);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, falso, Tuberias.X264);
         var emision = new Emision { PlazoPrimerCuadro = TimeSpan.FromSeconds(1) };
         var reloj = System.Diagnostics.Stopwatch.StartNew();
 

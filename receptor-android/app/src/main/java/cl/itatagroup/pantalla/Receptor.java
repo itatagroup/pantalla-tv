@@ -37,8 +37,13 @@ import cl.itatagroup.actualizacion.Actualizador;
  */
 public class Receptor extends Activity {
     private static final String TAG = "Pantalla";
-    /** Retardos a propósito que se alternan con OK: 0 = mínima latencia; 2 s = ver vídeos con fluidez. */
+    /**
+     * Búfer: se guardan los cuadros y se muestran este tiempo después, a ritmo parejo, para que los tirones del Wi-Fi
+     * no se noten. 0 = ninguno (lo más en vivo); 2 s = vídeos con una red mala. Se alternan con OK o con el botón.
+     */
     private static final int[] RETARDOS_MS = {0, 500, 1000, 2000};
+    /** Por defecto medio segundo (lo que antes pedía el emisor). El monitor virtual del PC va siempre sin búfer. */
+    private static final int BUFER_POR_DEFECTO_MS = 500;
     private static final String PREFS = "pantalla";
     private static final String PREF_RETARDO = "retardo_ms";
     /** Táctil: 0 = automática (según la imagen al transmitir), 1 = siempre horizontal, 2 = siempre vertical. */
@@ -72,6 +77,8 @@ public class Receptor extends Activity {
     private Button botonOrientacion;
     private Button sesionOrientacion;
     private int orientacion;
+    /** El búfer de la sesión en curso (-1 sin sesión): una interactiva va en 0 aunque el elegido sea otro. */
+    private int buferSesionMs = -1;
     private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
     private final Runnable ocultarBarra = () -> barraSesion.setVisibility(View.GONE);
 
@@ -101,8 +108,9 @@ public class Receptor extends Activity {
 
     private final Sesion.Estado estado = new Sesion.Estado() {
         @Override
-        public void conectado(String desde, int ancho, int alto) {
+        public void conectado(String desde, int ancho, int alto, int buferMs) {
             runOnUiThread(() -> {
+                buferSesionMs = buferMs;
                 // La superficie aún guarda el último cuadro de la sesión anterior: se queda tapada (fondo
                 // sólido, sin texto) hasta que llegue el primer cuadro de esta.
                 enSesion = true;
@@ -132,6 +140,7 @@ public class Receptor extends Activity {
         public void desconectado() {
             runOnUiThread(() -> {
                 enSesion = false;
+                buferSesionMs = -1;
                 ajustarProporcion(0, 0);
                 if (!esTv) {
                     hiloPrincipal.removeCallbacks(ocultarBarra);
@@ -155,7 +164,7 @@ public class Receptor extends Activity {
         }
         setContentView(R.layout.activity_receptor);
         textoEstado = (TextView) findViewById(R.id.estado);
-        retardoElegido = indiceDeRetardo(getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_RETARDO, 0));
+        retardoElegido = indiceDeRetardo(getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_RETARDO, BUFER_POR_DEFECTO_MS));
         video = (SurfaceView) findViewById(R.id.video);
         controles = findViewById(R.id.controles);
         aviso = (TextView) findViewById(R.id.aviso);
@@ -225,7 +234,7 @@ public class Receptor extends Activity {
     }
 
     /**
-     * OK en el control remoto alterna el retardo: 0 → 0,5 s → 1 s → 2 s → 0. En la pantalla de espera lo hace el
+     * OK en el control remoto alterna el búfer: 0 → 0,5 s → 1 s → 2 s → 0. En la pantalla de espera lo hace el
      * botón «Retardo», que tiene el foco al abrir; durante una sesión no hay botones y OK llega aquí.
      */
     @Override
@@ -353,7 +362,11 @@ public class Receptor extends Activity {
     }
 
     private void mostrarBarra() {
-        sesionRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
+        // En una sesión interactiva (el monitor virtual) el búfer va en 0: el botón lo dice y no se puede cambiar.
+        boolean interactiva = buferSesionMs == 0 && RETARDOS_MS[retardoElegido] != 0;
+        sesionRetardo.setEnabled(!interactiva);
+        sesionRetardo.setText(interactiva ? getString(R.string.bufer_interactivo)
+                : getString(R.string.retardo_boton, descripcionRetardo()));
         barraSesion.setVisibility(View.VISIBLE);
         hiloPrincipal.removeCallbacks(ocultarBarra);
         hiloPrincipal.postDelayed(ocultarBarra, BARRA_MS);
@@ -364,12 +377,18 @@ public class Receptor extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_RETARDO, RETARDOS_MS[indice]).apply();
         botonRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
         if (sesionRetardo != null) sesionRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
-        Toast.makeText(this, getString(R.string.retardo_aviso, descripcionRetardo()), Toast.LENGTH_SHORT).show();
+        // El búfer de una sesión se fija al empezar: el cambio vale para la siguiente.
+        Toast.makeText(this, getString(enSesion ? R.string.retardo_aviso_sesion : R.string.retardo_aviso, descripcionRetardo()),
+                Toast.LENGTH_SHORT).show();
     }
 
     private String descripcionRetardo() {
-        int ms = RETARDOS_MS[retardoElegido];
-        return ms == 0 ? getString(R.string.retardo_ninguno) : (ms / 1000.0) + " s";
+        return describirBufer(RETARDOS_MS[retardoElegido]);
+    }
+
+    private String describirBufer(int ms) {
+        return ms == 0 ? getString(R.string.retardo_ninguno)
+                : String.format(java.util.Locale.forLanguageTag("es"), "%.1f s", ms / 1000.0).replace(",0 s", " s");
     }
 
     private static int indiceDeRetardo(int ms) {

@@ -97,7 +97,7 @@ public class RespaldoTests
         public void Dispose() => _escucha.Stop();
     }
 
-    private static OpcionesEmision Op(string tuberias) => new(60, 8000, 1920, 1080, 0, null, tuberias, ConAudio: false);
+    private static OpcionesEmision Op(string tuberias) => new(60, 8000, 1920, 1080, false, null, tuberias, ConAudio: false);
 
     private static async Task<List<EstadoEmision>> TransmitirHasta(Emision emision, ReceptorFalso tv, OpcionesEmision op, Func<List<EstadoEmision>, bool> listo)
     {

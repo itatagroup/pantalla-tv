@@ -38,7 +38,6 @@ internal sealed class EnVivo
 /// </summary>
 internal sealed partial class Mando : IDisposable
 {
-    public static readonly int[] Retardos = [0, 500, 1000, 2000];
     public const string SinTransmitir = "Sin transmitir";
 
     private static readonly CultureInfo Es = CultureInfo.GetCultureInfo("es-CL");
@@ -129,13 +128,6 @@ internal sealed partial class Mando : IDisposable
         Ajustes.Guardar();
         return true;
     }
-
-    /// <summary>Los retardos de siempre y, si el guardado es otro (editado a mano), también ese: si no, se vería uno que no se usa.</summary>
-    public IReadOnlyList<Opcion<int>> OpcionesRetardo() =>
-        [.. Retardos.Append(Ajustes.RetardoMs).Distinct().Order().Select(ms => new Opcion<int>(TextoRetardo(ms), ms, Ajustes.RetardoMs == ms))];
-
-    public static string TextoRetardo(int ms) =>
-        ms == 0 ? "Sin retardo (mínima latencia)" : (ms / 1000.0).ToString("0.#", Es) + " s";
 
     /// <summary>Por defecto, automática. Elegir una a mano sirve para comparar o si la automática falla en este PC.</summary>
     public IReadOnlyList<Opcion<string?>> OpcionesForma() =>
@@ -274,7 +266,7 @@ internal sealed partial class Mando : IDisposable
                 var monitor = preparado.Monitor; // en píxeles reales (el programa es consciente del DPI)
                 var esVirtual = Monitores.EsElVirtual(monitor);
                 EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"Monitor virtual · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
-                var op = new OpcionesEmision(a.Fps, a.Kbps, monitor.Ancho, monitor.Alto, Monitores.RetardoPara(esVirtual, null, a.RetardoMs), null,
+                var op = new OpcionesEmision(a.Fps, a.Kbps, monitor.Ancho, monitor.Alto, esVirtual, null,
                     Tuberia: a.Tuberia, ConAudio: a.ConAudio, SilenciarPc: a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre);
                 await emision.EjecutarAsync(receptor, op, telemetria, ct);
             }

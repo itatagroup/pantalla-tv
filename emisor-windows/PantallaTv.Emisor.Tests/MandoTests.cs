@@ -36,19 +36,16 @@ public sealed class MandoTests : IDisposable
         var avisos = 0;
         mando.Cambio += () => avisos++;
 
-        mando.Cambiar(a => a.RetardoMs = 2000);
+        mando.Cambiar(a => a.Fps = 30);
 
         Assert.Equal(1, avisos);
-        Assert.Equal(2000, Ajustes.Cargar(mando.Ajustes.Ruta).RetardoMs);
-        Assert.Contains(mando.OpcionesRetardo(), o => o is { Valor: 2000, Elegida: true });
-        Assert.Single(mando.OpcionesRetardo(), o => o.Elegida);
+        Assert.Equal(30, Ajustes.Cargar(mando.Ajustes.Ruta).Fps);
     }
 
     [Fact]
     public void Los_textos_de_las_opciones_son_los_del_menu()
     {
         using var mando = Nuevo();
-        Assert.Equal(["Sin retardo (mínima latencia)", "0,5 s", "1 s", "2 s"], mando.OpcionesRetardo().Select(o => o.Texto));
         var formas = mando.OpcionesForma();
         Assert.Equal("Automática (recomendada)", formas[0].Texto);
         Assert.True(formas[0].Elegida);
@@ -57,10 +54,6 @@ public sealed class MandoTests : IDisposable
         mando.Cambiar(a => a.Tuberia = Tuberias.Nativa);
         Assert.Single(mando.OpcionesForma(), o => o.Elegida && o.Valor == Tuberias.Nativa);
 
-        // Un retardo editado a mano en ajustes.json aparece (marcado) en vez de mostrarse otro.
-        mando.Cambiar(a => a.RetardoMs = 300);
-        Assert.Equal([0, 300, 500, 1000, 2000], mando.OpcionesRetardo().Select(o => o.Valor));
-        Assert.Equal("0,3 s", Assert.Single(mando.OpcionesRetardo(), o => o.Elegida).Texto);
     }
 
     [Fact]
@@ -233,7 +226,7 @@ public sealed class MandoTests : IDisposable
         try
         {
             using var mando = Nuevo();
-            mando.Cambiar(a => { a.Reconectar = false; a.RetardoMs = 500; });
+            mando.Cambiar(a => { a.Reconectar = false; a.Fps = 60; });
             var receptor = new Receptor("Falso", IPAddress.Loopback, ((IPEndPoint)escucha.LocalEndpoint).Port);
             var aceptada = escucha.AcceptTcpClientAsync();
 
@@ -247,8 +240,8 @@ public sealed class MandoTests : IDisposable
             Assert.NotNull(mando.EnVivo);
             Assert.Equal("Falso (127.0.0.1)", mando.EnVivo.Tv);
             Assert.Equal("127.0.0.1", Ajustes.Cargar(mando.Ajustes.Ruta).UltimaIp);
-            mando.Cambiar(a => a.RetardoMs = 2000);
-            Assert.Equal(500, mando.Ajustes.RetardoMs); // no hizo nada
+            mando.Cambiar(a => a.Fps = 30);
+            Assert.Equal(60, mando.Ajustes.Fps); // no hizo nada
             mando.Iniciar(receptor); // tampoco: ya hay una
 
             mando.Detener();

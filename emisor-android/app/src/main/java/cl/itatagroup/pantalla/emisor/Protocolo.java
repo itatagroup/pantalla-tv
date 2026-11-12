@@ -38,9 +38,12 @@ final class Protocolo {
         out.flush();
     }
 
-    /** Carga del HELLO: 17 bytes, con el retardo pedido al final. */
-    static byte[] hello(int ancho, int alto, int fps, int tasaAudio, int canales, int retardoMs) {
-        ByteBuffer b = ByteBuffer.allocate(17);
+    /**
+     * Carga del HELLO: 18 bytes. El retardo pedido va en 0 (el búfer lo decide el receptor; el campo queda por los
+     * receptores anteriores a la 0.6.0) y las banderas en 0 (el teléfono no es una sesión interactiva).
+     */
+    static byte[] hello(int ancho, int alto, int fps, int tasaAudio, int canales) {
+        ByteBuffer b = ByteBuffer.allocate(18);
         b.put((byte) VERSION);
         b.putShort((short) ancho);
         b.putShort((short) alto);
@@ -48,7 +51,8 @@ final class Protocolo {
         b.putInt(tasaAudio);
         b.put((byte) canales);
         b.put("0000".getBytes(StandardCharsets.US_ASCII)); // PIN: todavía no se exige
-        b.putShort((short) retardoMs);
+        b.putShort((short) 0); // retardo pedido
+        b.put((byte) 0);       // banderas
         return b.array();
     }
 }

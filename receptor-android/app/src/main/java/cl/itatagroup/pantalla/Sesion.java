@@ -23,13 +23,16 @@ final class Sesion implements Runnable {
         /** La superficie de dibujo, o null si la pantalla no está a la vista. */
         Surface superficie();
 
-        /** Retardo a propósito que el usuario eligió en la TV (0 = mínima latencia). */
+        /** El búfer que el usuario eligió en este equipo (0 = ninguno). Es el único que cuenta. */
         int retardoMs();
     }
 
     interface Estado {
-        /** @param ancho y alto de la imagen que va a llegar, para respetar su proporción. */
-        void conectado(String desde, int ancho, int alto);
+        /**
+         * @param ancho y alto de la imagen que va a llegar, para respetar su proporción.
+         * @param buferMs el búfer de esta sesión (0 en una interactiva, aunque el usuario haya elegido otro).
+         */
+        void conectado(String desde, int ancho, int alto, int buferMs);
 
         /** Se dibujó el primer cuadro de la sesión: ya se puede quitar la cubierta. */
         void primerCuadro();
@@ -82,7 +85,7 @@ final class Sesion implements Runnable {
                     if (tipo != Protocolo.HELLO) throw new IOException("se esperaba HELLO");
                     if (!saludar(carga)) return;
                     saludoHecho = true;
-                    estado.conectado(desde, ancho, alto);
+                    estado.conectado(desde, ancho, alto, retardoMs);
                     continue;
                 }
                 atender(tipo, pts, carga);
@@ -119,10 +122,13 @@ final class Sesion implements Runnable {
         int tasaAudio = b.getInt();
         int canales = b.get() & 0xFF;
         b.position(b.position() + 4); // el PIN: en la v1 no se exige
-        // Campo opcional al final: retardo que pide el emisor. Manda el mayor entre éste y el de la TV.
-        int pedido = c.length >= 17 ? (b.getShort() & 0xFFFF) : 0;
-        // Con tope: estos números dimensionan las colas y vienen de la red.
-        retardoMs = Math.min(Math.max(pedido, pantalla.retardoMs()), Protocolo.RETARDO_MAX_MS);
+        // Campos opcionales al final. El retardo que pedían los emisores anteriores se ignora: el búfer lo decide
+        // quien mira (desde la 0.6.0). Las banderas dicen si es una sesión interactiva (el monitor virtual del PC,
+        // que se usa con el ratón): esa va sin búfer.
+        if (c.length >= 17) b.getShort();
+        boolean interactiva = c.length >= 18 && (b.get() & Protocolo.BANDERA_INTERACTIVA) != 0;
+        // Con tope: estos números dimensionan las colas.
+        retardoMs = interactiva ? 0 : Math.min(Math.max(pantalla.retardoMs(), 0), Protocolo.RETARDO_MAX_MS);
         fps = Math.min(Math.max(fps, 1), Protocolo.FPS_MAX);
         if (version != Protocolo.VERSION) {
             rechazar("version");

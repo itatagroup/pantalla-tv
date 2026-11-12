@@ -12,7 +12,7 @@ internal sealed class VentanaPrincipal : Form
 {
     /// <summary>Ancho del contenido en píxeles lógicos (a 100 %).</summary>
     private const int Ancho = 560;
-    /// <summary>Columna de las etiquetas («Transmitir a», «Retardo»…).</summary>
+    /// <summary>Columna de las etiquetas («Transmitir a», «Pantalla»…).</summary>
     private const int ColumnaEtiquetas = 128;
 
     private readonly Mando _mando;
@@ -47,9 +47,6 @@ internal sealed class VentanaPrincipal : Form
 
     private readonly Tarjeta _ajustes = new() { AccessibleName = "Ajustes", AccessibleRole = AccessibleRole.Grouping };
     private readonly Label _notaBloqueo = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
-    private readonly Label _etiquetaRetardo = new() { Text = "&Retardo" };
-    private readonly Lista _retardo = new() { AccessibleName = "Retardo" };
-    private readonly Label _notaRetardo = new() { Text = "El monitor virtual va siempre sin retardo.", UseMnemonic = false };
     private readonly Casilla _sonido = new() { Text = "Enviar también el &sonido" };
     private readonly Casilla _silenciar = new() { Text = "Si&lenciar el PC mientras transmite" };
     private readonly Label _notaSilenciar = new() { Text = "Solo si se envía el sonido.", UseMnemonic = false };
@@ -110,7 +107,7 @@ internal sealed class VentanaPrincipal : Form
         _banda.Controls.AddRange([_textoBanda, _actualizar, _despues]);
         _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _boton]);
         _vivo.Controls.AddRange([.. _vivoEtiquetas, .. _vivoValores]);
-        _ajustes.Controls.AddRange([_notaBloqueo, _etiquetaRetardo, _retardo, _notaRetardo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
+        _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
             _buscarAhora, _notaActualizaciones]);
 
@@ -118,10 +115,10 @@ internal sealed class VentanaPrincipal : Form
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
         OrdenTab(_actualizar, _despues);
         OrdenTab(_etiquetaTv, _tvs, _escribirIp, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
-        OrdenTab(_etiquetaRetardo, _retardo, _sonido, _silenciar, _inicio);
+        OrdenTab(_sonido, _silenciar, _inicio);
         OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
-        foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaRetardo, _etiquetaForma, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
+        foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
         AcceptButton = _boton;
 
@@ -129,7 +126,6 @@ internal sealed class VentanaPrincipal : Form
         _escribirIp.Click += (_, _) => EscribirIp();
         _instalarVirtual.Click += (_, _) => _mando.InstalarMonitorVirtual();
         _tvs.SelectionChangeCommitted += (_, _) => { if (_tvs.Valor is Destino d) _elegido = d.Clave; };
-        _retardo.SelectionChangeCommitted += (_, _) => { if (_retardo.Valor is int ms) _mando.Cambiar(a => a.RetardoMs = ms); };
         _forma.SelectionChangeCommitted += (_, _) => _mando.Cambiar(a => a.Tuberia = (string?)_forma.Valor);
         Alternar(_sonido, (a, v) => a.ConAudio = v);
         Alternar(_silenciar, (a, v) => a.SilenciarPc = v);
@@ -306,13 +302,12 @@ internal sealed class VentanaPrincipal : Form
 
             // Ajustes.
             _notaBloqueo.Visible = _notaBloqueoAvanzado.Visible = !editable;
-            _retardo.Cargar([.. m.OpcionesRetardo().Select(o => new ElementoLista(o.Texto, o.Valor))], m.Ajustes.RetardoMs);
             _forma.Cargar([.. m.OpcionesForma().Select(o => new ElementoLista(o.Texto, o.Valor))], m.Ajustes.Tuberia);
             _sonido.Checked = m.Ajustes.ConAudio;
             _silenciar.Checked = m.Ajustes.SilenciarPc;
             _reconectar.Checked = m.Ajustes.Reconectar;
             _telemetria.Checked = m.Ajustes.GuardarTelemetria;
-            foreach (var c in new Control[] { _retardo, _sonido, _reconectar, _telemetria, _forma }) c.Enabled = editable;
+            foreach (var c in new Control[] { _sonido, _reconectar, _telemetria, _forma }) c.Enabled = editable;
             _silenciar.Enabled = m.PuedeSilenciar;
             _notaSilenciar.Visible = editable && !m.Ajustes.ConAudio;
 
@@ -423,11 +418,11 @@ internal sealed class VentanaPrincipal : Form
         foreach (var i in new[] { 2, 3, 4 }) _vivoValores[i].Font = _fuenteDato;
         _boton.Font = _fuenteBoton;
         _expansor.Font = _fuenteFuerte;
-        foreach (var l in new[] { _tvs, _retardo, _forma }) l.ItemHeight = S(24);
+        foreach (var l in new[] { _tvs, _forma }) l.ItemHeight = S(24);
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaBloqueo, _notaRetardo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones];
+        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -530,10 +525,6 @@ internal sealed class VentanaPrincipal : Form
         // Tarjeta de ajustes.
         cy = relleno;
         if (_notaBloqueo.Visible) cy = Nota(_notaBloqueo, relleno, cy, interior) + S(10);
-        Etiqueta(_etiquetaRetardo, relleno, cy, etiquetas, altoCampo);
-        Poner(_retardo, relleno + etiquetas, cy, campo, altoCampo);
-        cy += altoCampo;
-        cy = Nota(_notaRetardo, relleno + etiquetas, cy + S(4), campo) + S(10);
         cy = Casilla(_sonido, relleno, cy, interior);
         cy = Casilla(_silenciar, relleno, cy, interior);
         if (_notaSilenciar.Visible) cy = Nota(_notaSilenciar, relleno + S(31), cy - S(4), interior - S(31)) + S(4);
@@ -656,7 +647,7 @@ internal sealed class VentanaPrincipal : Form
         foreach (var l in _vivoEtiquetas) l.ForeColor = p.Secundario;
         foreach (var l in _vivoValores) l.ForeColor = p.TextoFuerte;
         _version.ForeColor = p.Secundario;
-        foreach (var l in new[] { _tvs, _retardo, _forma }) l.BackColor = p.Superficie;
+        foreach (var l in new[] { _tvs, _forma }) l.BackColor = p.Superficie;
         if (IsHandleCreated) AplicarTemaVentana(p);
         CrearFuentes();
         Refrescar();
@@ -669,7 +660,7 @@ internal sealed class VentanaPrincipal : Form
         // La barra de desplazamiento (si hace falta) y las listas desplegadas, oscuras en el tema oscuro.
         var tema = p.Oscura ? "DarkMode_Explorer" : "Explorer";
         _ = SetWindowTheme(_contenido.Handle, tema, null);
-        foreach (var l in new[] { _tvs, _retardo, _forma }) _ = SetWindowTheme(l.Handle, p.Oscura ? "DarkMode_CFD" : "CFD", null);
+        foreach (var l in new[] { _tvs, _forma }) _ = SetWindowTheme(l.Handle, p.Oscura ? "DarkMode_CFD" : "CFD", null);
     }
 
     protected override void OnHandleCreated(EventArgs e)

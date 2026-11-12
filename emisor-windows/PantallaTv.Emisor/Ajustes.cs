@@ -7,8 +7,6 @@ namespace PantallaTv.Emisor;
 internal sealed class Ajustes
 {
     public string? UltimaIp { get; set; }
-    /// <summary>Por defecto medio segundo: absorbe los tirones del Wi-Fi. 0 = mínima latencia (para trabajar con el PC).</summary>
-    public int RetardoMs { get; set; } = 500;
     public int Fps { get; set; } = 60;
     public int Kbps { get; set; } = 8000;
     public bool GuardarTelemetria { get; set; }

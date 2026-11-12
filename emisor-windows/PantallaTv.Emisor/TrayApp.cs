@@ -127,10 +127,6 @@ internal sealed class TrayApp : ApplicationContext
         }
         _menu.Items.Add(menuMonitor);
 
-        var retardo = new ToolStripMenuItem("Retardo (el monitor virtual va siempre sin retardo)") { Enabled = editable };
-        Opciones(retardo, m.OpcionesRetardo(), v => m.Cambiar(a => a.RetardoMs = v));
-        _menu.Items.Add(retardo);
-
         var forma = new ToolStripMenuItem("Forma de capturar") { Enabled = editable };
         Opciones(forma, m.OpcionesForma(), v => m.Cambiar(a => a.Tuberia = v));
         _menu.Items.Add(forma);

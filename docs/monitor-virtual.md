@@ -119,12 +119,11 @@ editar `vdd_settings.xml` (ver más arriba dónde queda).
 - Probar con un monitor de otro adaptador.
 - El contenido con DRM se captura en negro, igual que en el monitor real.
 
-## Velocidad y retardo
+## Velocidad y búfer
 
 - **60 fps**: la tubería `amf` de ffmpeg termina el filtro con `format=nv12` (conversión en CPU, ~2 núcleos).
   Antes daba ~37 fps; la causa no era el monitor virtual sino el hilo único que copia el cuadro BGRA. Desde la
   0.7.0 la captura propia («nativa») evita esa copia.
-- **Retardo 0 por defecto en el virtual**: el emisor pide retardo 0 cuando el monitor es el virtual
-  (`Monitores.RetardoPara`); el principal y los demás siguen con el de los ajustes (0,5 s). `--retardo N` por CLI manda siempre.
-  En la bandeja el menú de retardo no afecta al virtual. El efectivo es el mayor entre el del emisor y el de la tele: si en la
-  tele está en 0,5 s, el 0 del emisor no se nota.
+- **El virtual va sin búfer**: el búfer lo elige la tele (0,5 s por defecto), pero cuando el monitor es el virtual
+  el emisor marca la sesión como interactiva (bandera del `HELLO`, ver `protocolo.md`) y la tele la muestra sin
+  búfer, para que el ratón no se atrase. Desde la 0.9.0 el emisor ya no tiene opción de retardo.

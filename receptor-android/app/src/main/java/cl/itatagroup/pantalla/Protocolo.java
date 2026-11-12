@@ -23,6 +23,8 @@ final class Protocolo {
 
     /** Topes de lo que puede pedir un emisor (dimensionan las colas del receptor). */
     static final int RETARDO_MAX_MS = 5000;
+    /** Banderas del HELLO (byte 17), bit 0: sesión interactiva (el monitor virtual del PC): va sin búfer. */
+    static final int BANDERA_INTERACTIVA = 0x01;
     static final int FPS_MAX = 120;
 
     /** Escribe un mensaje completo (cabecera + carga) y vacía el búfer. Un hilo a la vez por flujo. */

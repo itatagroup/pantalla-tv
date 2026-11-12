@@ -28,7 +28,7 @@ Todos con la misma cabecera de 13 bytes (enteros en *big-endian*):
 
 | Tipo | Nombre | Sentido | Carga |
 |---|---|---|---|
-| `0x01` | `HELLO` | emisor → receptor | versión (u8) · ancho (u16) · alto (u16) · fps (u8) · tasa de audio (u32, 0 = sin audio) · canales (u8) · PIN (4 bytes ASCII, `0000` si no hay) · **opcional:** retardo pedido en ms (u16) |
+| `0x01` | `HELLO` | emisor → receptor | versión (u8) · ancho (u16) · alto (u16) · fps (u8) · tasa de audio (u32, 0 = sin audio) · canales (u8) · PIN (4 bytes ASCII, `0000` si no hay) · **opcional:** retardo pedido en ms (u16, siempre 0 desde la 0.9.0) · **opcional:** banderas (u8; bit 0 = interactiva, sin búfer) |
 | `0x02` | `HELLO_OK` | receptor → emisor | vacía |
 | `0x03` | `HELLO_ERR` | receptor → emisor | motivo en UTF-8 (`ocupado`, `pin`, `version`) |
 | `0x10` | `VIDEO_CONFIG` | emisor → receptor | SPS y PPS en formato *Annex B* (`00 00 00 01` + NAL) |
@@ -38,14 +38,23 @@ Todos con la misma cabecera de 13 bytes (enteros en *big-endian*):
 | `0x31` | `PONG` | ambos | los mismos 8 bytes del `PING` |
 | `0x40` | `PEDIR_CLAVE` | receptor → emisor | vacía: «mándame un fotograma clave ya» |
 
-## Retardo a propósito (añadido en el M1)
+## Búfer (desde la 0.6.0 del receptor; antes «retardo a propósito»)
 
-El receptor puede retener la imagen y el sonido un tiempo fijo (0,5 / 1 / 2 s) para absorber tirones
-de la red al ver vídeos. El emisor pide **500 ms por defecto**; el tope es 5 s. El retardo efectivo es el **mayor** entre el que elige el usuario en la TV y el
-que pide el emisor en el `HELLO` (campo opcional, 2 bytes; si falta, 0). El receptor guarda los
-cuadros comprimidos y los entrega al decodificador a la hora `pts + desfase de relojes + retardo`;
-audio y vídeo comparten esa hora. Con retardo, las reglas 3 y 4 de abajo se aplican sobre una cola
-más grande (el retardo en cuadros más un margen).
+El receptor puede retener la imagen y el sonido un tiempo fijo (0,5 / 1 / 2 s, tope 5 s) para que los tirones de
+la red no se noten al ver vídeos: un búfer. **Lo decide solo quien mira**, con el botón «Búfer» del receptor
+(0,5 s por defecto). Guarda los cuadros comprimidos y los entrega al decodificador a la hora
+`pts + desfase de relojes + búfer`; audio y vídeo comparten esa hora. Con búfer, las reglas 3 y 4 de abajo se
+aplican sobre una cola más grande (el búfer en cuadros más un margen).
+
+La única excepción es una **sesión interactiva**: el emisor lo avisa con el bit 0 de las banderas del `HELLO`
+(el emisor de Windows lo marca cuando transmite el monitor virtual, que se usa con el ratón) y el receptor la
+muestra **sin búfer**, sea cual sea el elegido.
+
+Campos del final del `HELLO`, los dos opcionales:
+
+- **retardo pedido** (u16, bytes 15–16): los emisores desde la 0.9.0 (Windows) y la 0.3.0 (Android) mandan 0. Los
+  receptores anteriores a la 0.6.0 usaban el mayor entre este y el suyo; desde la 0.6.0 se ignora.
+- **banderas** (u8, byte 17): bit 0 = sesión interactiva. Si falta, 0.
 
 ## Reglas de latencia
 
@@ -58,7 +67,7 @@ más grande (el retardo en cuadros más un margen).
    decodifica pero **no se dibuja**; con más de 250 ms (o con la cola llena) **tira todo hasta el siguiente
    fotograma clave** y manda `PEDIR_CLAVE` (la tubería `nativa` lo atiende al momento; con ffmpeg llega el
    siguiente periódico).
-4. Audio: va por una cola propia del emisor, que sale antes que el vídeo. Sin retardo, el receptor no deja
+4. Audio: va por una cola propia del emisor, que sale antes que el vídeo. Sin búfer, el receptor no deja
    esperar más de ~140 ms: si se acumula, salta a lo más nuevo.
 5. Vídeo y audio comparten el `pts`; el receptor lo usa para alinearlos, no para esperar. El `pts` de un cuadro
    es la hora en que sale del codificador (con ffmpeg y con la `nativa`): el atraso de las reglas 3 y 4 se mide

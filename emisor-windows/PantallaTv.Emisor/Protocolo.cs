@@ -30,8 +30,8 @@ internal static class Protocolo
     public const int LargoCabecera = 13;
     public const int MaxCarga = 8 * 1024 * 1024;
 
-    /// <summary>Tope del retardo a propósito; el receptor aplica el mismo.</summary>
-    public const int RetardoMaxMs = 5000;
+    /// <summary>Banderas del HELLO (byte 17): bit 0 = sesión interactiva (el monitor virtual), sin búfer en el receptor.</summary>
+    public const byte BanderaInteractiva = 0x01;
 
     /// <summary>Cabecera (tipo, largo, pts en µs) seguida de la carga.</summary>
     public static byte[] Armar(byte tipo, ulong ptsUs, ReadOnlySpan<byte> carga)
@@ -44,10 +44,13 @@ internal static class Protocolo
         return m;
     }
 
-    /// <summary>HELLO de 17 bytes: versión, tamaño, fps, audio, PIN y el retardo pedido (opcional en el receptor).</summary>
-    public static byte[] ArmarHello(int ancho, int alto, int fps, int tasaAudio, int canales, string pin, int retardoMs)
+    /// <summary>
+    /// HELLO de 18 bytes: versión, tamaño, fps, audio, PIN, el retardo pedido (siempre 0: el búfer lo decide el receptor;
+    /// el campo queda por los receptores anteriores a la 0.6.0) y las banderas (ver <see cref="BanderaInteractiva"/>).
+    /// </summary>
+    public static byte[] ArmarHello(int ancho, int alto, int fps, int tasaAudio, int canales, string pin, bool interactiva)
     {
-        var c = new byte[17];
+        var c = new byte[18];
         c[0] = Version;
         BinaryPrimitives.WriteUInt16BigEndian(c.AsSpan(1, 2), (ushort)ancho);
         BinaryPrimitives.WriteUInt16BigEndian(c.AsSpan(3, 2), (ushort)alto);
@@ -55,7 +58,8 @@ internal static class Protocolo
         BinaryPrimitives.WriteUInt32BigEndian(c.AsSpan(6, 4), (uint)tasaAudio);
         c[10] = (byte)canales;
         Encoding.ASCII.GetBytes(pin.PadLeft(4, '0')[..4]).CopyTo(c.AsSpan(11, 4));
-        BinaryPrimitives.WriteUInt16BigEndian(c.AsSpan(15, 2), (ushort)retardoMs);
+        // c[15..17]: retardo pedido = 0.
+        c[17] = interactiva ? BanderaInteractiva : (byte)0;
         return Armar(Hello, 0, c);
     }
 

@@ -28,7 +28,7 @@ public class ReconexionTests
             }
         });
         var receptor = new Receptor("Falso", IPAddress.Loopback, ((IPEndPoint)escucha.LocalEndpoint).Port);
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, FfmpegFalso);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, FfmpegFalso);
         var estados = new List<EstadoEmision>();
         var persistente = new EmisionPersistente { EsperaInicial = TimeSpan.FromMilliseconds(20), EsperaMaxima = TimeSpan.FromMilliseconds(40) };
         persistente.CambioDeEstado += e => { lock (estados) estados.Add(e); };
@@ -53,7 +53,7 @@ public class ReconexionTests
         libre.Start();
         var puerto = ((IPEndPoint)libre.LocalEndpoint).Port;
         libre.Stop(); // nadie escucha: cada intento falla y es reintentable
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, FfmpegFalso);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, FfmpegFalso);
         var estados = new List<EstadoEmision>();
         var persistente = new EmisionPersistente { EsperaInicial = TimeSpan.FromSeconds(30) };
         persistente.CambioDeEstado += e => { lock (estados) estados.Add(e); };
@@ -75,7 +75,7 @@ public class ReconexionTests
         libre.Start();
         var puerto = ((IPEndPoint)libre.LocalEndpoint).Port;
         libre.Stop();
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, FfmpegFalso);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, FfmpegFalso);
         var persistente = new EmisionPersistente { EsperaInicial = TimeSpan.FromMilliseconds(5), EsperaMaxima = TimeSpan.FromMilliseconds(5), IntentosSeguidosMax = 2 };
 
         var error = await Assert.ThrowsAsync<EmisionException>(() =>
@@ -92,7 +92,7 @@ public class TuberiaMonitorTests
     [InlineData(Tuberias.X264, "ddagrab=2:framerate=60,hwdownload,format=bgra")]
     public void El_monitor_elegido_llega_a_ffmpeg(string tuberia, string esperado)
     {
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, null, Monitor: 2);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, null, Monitor: 2);
 
         Assert.Contains(esperado, Tuberias.Argumentos(tuberia, op));
     }
@@ -100,7 +100,7 @@ public class TuberiaMonitorTests
     [Fact]
     public void Solo_la_tuberia_amf_convierte_a_nv12_en_cpu()
     {
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, null, Monitor: 1);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, null, Monitor: 1);
 
         Assert.Contains("ddagrab=1:framerate=60,hwdownload,format=bgra,format=nv12", Tuberias.Argumentos(Tuberias.Amf, op));
         foreach (var otra in new[] { Tuberias.Mf, Tuberias.X264, Tuberias.Nvenc, Tuberias.Qsv })
@@ -110,21 +110,10 @@ public class TuberiaMonitorTests
         Assert.Equal("vsrc_amf=monitor_index=1:framerate=60", Tuberias.Argumentos(Tuberias.AmfGpu, op)[Tuberias.Argumentos(Tuberias.AmfGpu, op).IndexOf("-i") + 1]);
     }
 
-    [Theory]
-    [InlineData(true, null, 500, 0)]      // virtual: 0 por defecto
-    [InlineData(false, null, 500, 500)]   // principal u otro: el de los ajustes
-    [InlineData(false, null, 2000, 2000)]
-    [InlineData(true, 1000, 500, 1000)]   // --retardo explícito manda, también en el virtual
-    [InlineData(false, 0, 500, 0)]
-    public void El_monitor_virtual_pide_retardo_cero_salvo_que_se_pida_otro(bool esVirtual, int? pedido, int ajustes, int esperado)
-    {
-        Assert.Equal(esperado, Monitores.RetardoPara(esVirtual, pedido, ajustes));
-    }
-
     [Fact]
     public void Un_indice_negativo_cae_en_el_primer_monitor()
     {
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, null, Monitor: -5);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, null, Monitor: -5);
 
         Assert.Contains("vsrc_amf=monitor_index=0:framerate=60", Tuberias.Argumentos(Tuberias.AmfGpu, op));
     }
@@ -191,18 +180,18 @@ public class MonitoresTests
     public void Solo_el_monitor_principal_usa_la_captura_de_GPU_de_AMD()
     {
         // Regresión: con el monitor virtual (adaptador 0, salida 1) vsrc_amf mostraba el escritorio principal.
-        var virtualEnLaMismaGrafica = new OpcionesEmision(60, 8000, 1920, 1080, 0, null, Monitor: 1, Adaptador: 0);
+        var virtualEnLaMismaGrafica = new OpcionesEmision(60, 8000, 1920, 1080, false, null, Monitor: 1, Adaptador: 0);
 
         Assert.DoesNotContain(Tuberias.AmfGpu, Tuberias.Candidatas(Tuberias.Todas, virtualEnLaMismaGrafica));
         Assert.Contains(Tuberias.Amf, Tuberias.Candidatas(Tuberias.Todas, virtualEnLaMismaGrafica));
         Assert.Contains("ddagrab=1:framerate=60,hwdownload,format=bgra,format=nv12", Tuberias.Argumentos(Tuberias.Amf, virtualEnLaMismaGrafica));
-        Assert.Equal(Tuberias.Todas, Tuberias.Candidatas(Tuberias.Todas, new OpcionesEmision(60, 8000, 1920, 1080, 0, null)));
+        Assert.Equal(Tuberias.Todas, Tuberias.Candidatas(Tuberias.Todas, new OpcionesEmision(60, 8000, 1920, 1080, false, null)));
     }
 
     [Fact]
     public void Un_monitor_de_otro_adaptador_no_usa_la_captura_de_AMD_y_le_dice_a_ffmpeg_cual_es()
     {
-        var op = new OpcionesEmision(60, 8000, 1280, 720, 0, null, Monitor: 0, Adaptador: 1);
+        var op = new OpcionesEmision(60, 8000, 1280, 720, false, null, Monitor: 0, Adaptador: 1);
 
         var candidatas = Tuberias.Candidatas(Tuberias.Todas, op);
         var args = Tuberias.Argumentos(Tuberias.Amf, op);

@@ -91,7 +91,7 @@ Lo mismo en las tres:
 «Pantalla» aparece en el lanzador normal. En la espera se puede girar el equipo; al llegar una transmisión se pone
 en horizontal o vertical según la imagen, en pantalla completa y sin apagarse. El botón «Orientación»
 (automática → horizontal → vertical) la fija antes de conectar o durante la sesión, y se recuerda. Tocar la pantalla
-muestra unos segundos una barra con «Retardo», «Orientación» y «Terminar»; Atrás también termina la sesión.
+muestra unos segundos una barra con «Búfer», «Orientación» y «Terminar»; Atrás también termina la sesión.
 
 ## Instalar
 
@@ -103,8 +103,10 @@ muestra unos segundos una barra con «Retardo», «Orientación» y «Terminar»
    Si algo no funciona: clic derecho › *Diagnóstico para enviar…* (o `PantallaTv.exe --diagnostico`).
 2. **Tele**: instala `pantalla-receptor-<versión>.apk` y ábrela («Pantalla»). Hay que permitir instalar apps de
    **orígenes desconocidos** a la app desde la que la abras (Ajustes › Seguridad), o instalarla con
-   `adb install`. El botón «Retardo» de la pantalla de espera (o **OK** del control durante una transmisión)
-   cambia el retardo (sin retardo / 0,5 / 1 / 2 s).
+   `adb install`. El botón «Búfer» de la pantalla de espera (o **OK** del control durante una transmisión)
+   elige cuánto guarda la tele antes de mostrar (ninguno / 0,5 / 1 / 2 s; 0,5 s por defecto): más búfer, menos
+   tirones con un Wi-Fi malo, a cambio de ver la imagen con ese atraso. Vale desde la próxima transmisión. Es el
+   único lugar donde se elige; el monitor virtual del PC va siempre sin búfer.
 3. **Teléfono**: instala `pantalla-emisor-<versión>.apk`, abre «Enviar a Pantalla» y elige la tele.
 
 ## Compilar

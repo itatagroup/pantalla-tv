@@ -4,9 +4,11 @@
   <string name="esperando">Esperando transmisión</string>
   <string name="esperando_detalle">En el PC elige «%1$s» (%2$s)</string>
   <string name="sin_red">Sin conexión a la red</string>
-  <string name="retardo_ninguno">sin retardo (mínima latencia)</string>
-  <string name="retardo_boton">Retardo: %1$s</string>
-  <string name="retardo_aviso">Retardo: %1$s</string>
+  <string name="retardo_ninguno">ninguno (en vivo)</string>
+  <string name="retardo_boton">Búfer: %1$s</string>
+  <string name="retardo_aviso">Búfer: %1$s</string>
+  <string name="retardo_aviso_sesion">Búfer: %1$s (desde la próxima transmisión)</string>
+  <string name="bufer_interactivo">Búfer: ninguno (monitor virtual)</string>
   <string name="terminar">Terminar</string>
   <string name="orientacion_auto">Orientación: automática</string>
   <string name="orientacion_horizontal">Orientación: horizontal</string>

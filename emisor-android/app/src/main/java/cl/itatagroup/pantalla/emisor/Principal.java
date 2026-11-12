@@ -36,7 +36,6 @@ public class Principal extends Activity {
     private static final String[] CALIDADES = {"720p (recomendada)", "1080p"};
     private static final int[] KBPS = {4000, 8000};
     private static final int[] FPS = {30, 60};
-    private static final int[] RETARDOS = {0, 500, 1000, 2000};
     /** El manifiesto propio de esta app (docs/actualizaciones.md); solo se pide al pulsar «Buscar actualización». */
     private static final String MANIFIESTO =
             "https://github.com/itatagroup/pantalla-tv/releases/download/actualizaciones/emisor-android.json";
@@ -51,7 +50,6 @@ public class Principal extends Activity {
     private TextView buscando;
     private Button bCalidad;
     private Button bFluidez;
-    private Button bRetardo;
     private Button bSonido;
     private Button bBuscar;
     private Button bActualizar;
@@ -63,7 +61,6 @@ public class Principal extends Activity {
 
     private int calidad;
     private int fluidez;
-    private int retardo;
     private boolean sonido;
     private String ipElegida = "";
 
@@ -82,7 +79,6 @@ public class Principal extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         calidad = acotar(prefs.getInt("calidad", 0), LADOS.length);
         fluidez = acotar(prefs.getInt("fluidez", 0), FPS.length);
-        retardo = acotar(prefs.getInt("retardo", 1), RETARDOS.length);
         sonido = prefs.getBoolean("sonido", true);
         ipElegida = prefs.getString("ip", "");
         // Para pruebas por adb: am start -n …/.Principal --es ip 10.0.0.20
@@ -100,7 +96,6 @@ public class Principal extends Activity {
         LinearLayout opciones = (LinearLayout) findViewById(R.id.opciones);
         bCalidad = opcion(opciones, v -> { calidad = (calidad + 1) % LADOS.length; guardar(); });
         bFluidez = opcion(opciones, v -> { fluidez = (fluidez + 1) % FPS.length; guardar(); });
-        bRetardo = opcion(opciones, v -> { retardo = (retardo + 1) % RETARDOS.length; guardar(); });
         bSonido = opcion(opciones, v -> { sonido = !sonido; guardar(); });
 
         actualizador = new Actualizador(this, "itatagroup/pantalla-tv", "emisor-android", "EnviarAPantalla");
@@ -172,7 +167,7 @@ public class Principal extends Activity {
     }
 
     private void guardar() {
-        prefs.edit().putInt("calidad", calidad).putInt("fluidez", fluidez).putInt("retardo", retardo)
+        prefs.edit().putInt("calidad", calidad).putInt("fluidez", fluidez)
                 .putBoolean("sonido", sonido).putString("ip", ipElegida).apply();
         pintar();
     }
@@ -185,10 +180,8 @@ public class Principal extends Activity {
                 : ipElegida.isEmpty() ? getString(R.string.transmitir) : getString(R.string.transmitir_a, ipElegida));
         bCalidad.setText(getString(R.string.calidad, CALIDADES[calidad]));
         bFluidez.setText(getString(R.string.fluidez, FPS[fluidez]));
-        int ms = RETARDOS[retardo];
-        bRetardo.setText(getString(R.string.retardo, ms == 0 ? getString(R.string.retardo_ninguno) : (ms / 1000.0) + " s"));
         bSonido.setText(sonido ? R.string.sonido_si : R.string.sonido_no);
-        for (Button b : new Button[] {bCalidad, bFluidez, bRetardo, bSonido}) b.setEnabled(!activo);
+        for (Button b : new Button[] {bCalidad, bFluidez, bSonido}) b.setEnabled(!activo);
         // Mientras transmite no se busca ni se instala nada.
         bBuscar.setText(buscandoVersion ? R.string.buscando_actualizacion : R.string.buscar);
         bBuscar.setEnabled(!activo && !buscandoVersion && !descargando);
@@ -273,7 +266,6 @@ public class Principal extends Activity {
                 .putExtra(ServicioEmision.EXTRA_LADO, LADOS[calidad])
                 .putExtra(ServicioEmision.EXTRA_FPS, fps)
                 .putExtra(ServicioEmision.EXTRA_KBPS, fps > 30 ? KBPS[calidad] * 3 / 2 : KBPS[calidad])
-                .putExtra(ServicioEmision.EXTRA_RETARDO, RETARDOS[retardo])
                 .putExtra(ServicioEmision.EXTRA_SONIDO, sonido);
         startForegroundService(servicio);
         pintar();

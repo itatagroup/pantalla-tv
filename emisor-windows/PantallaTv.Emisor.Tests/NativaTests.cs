@@ -151,7 +151,7 @@ public class OpcionesNativaTests
     [Fact]
     public void Pasa_lo_de_la_emision()
     {
-        var op = new OpcionesEmision(60, 6000, 1920, 1080, 0, null, Tuberias.Nativa, Monitor: 1, Adaptador: 2,
+        var op = new OpcionesEmision(60, 6000, 1920, 1080, false, null, Tuberias.Nativa, Monitor: 1, Adaptador: 2,
             MonitorNombre: @"\.\DISPLAY9", LatidoFps: 10, Cursor: false, SegClave: 30);
         Assert.Equal(new OpcionesNativa(@"\.\DISPLAY9", 2, 1, 1920, 1080, 60, 6000, 10, 30, false), op.ParaNativa());
     }
@@ -161,9 +161,9 @@ public class OpcionesNativaTests
     {
         var orden = Tuberias.Orden(new Dictionary<string, DateTime>(), DateTime.UtcNow);
         Assert.Equal(Tuberias.Nativa, orden[0]);
-        var virtualEnOtraGrafica = new OpcionesEmision(60, 8000, 1920, 1080, 0, null, Monitor: 0, Adaptador: 1);
+        var virtualEnOtraGrafica = new OpcionesEmision(60, 8000, 1920, 1080, false, null, Monitor: 0, Adaptador: 1);
         Assert.Equal(Tuberias.Nativa, Tuberias.Candidatas(orden, virtualEnOtraGrafica)[0]);
-        Assert.Equal(Tuberias.Nativa, Tuberias.Candidatas(orden, new OpcionesEmision(60, 8000, 1920, 1080, 0, null))[0]);
+        Assert.Equal(Tuberias.Nativa, Tuberias.Candidatas(orden, new OpcionesEmision(60, 8000, 1920, 1080, false, null))[0]);
     }
 }
 

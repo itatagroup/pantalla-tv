@@ -10,8 +10,6 @@
   <string name="opciones">Opciones</string>
   <string name="calidad">Calidad: %1$s</string>
   <string name="fluidez">Fluidez: %1$d cuadros por segundo</string>
-  <string name="retardo">Retardo: %1$s</string>
-  <string name="retardo_ninguno">sin retardo</string>
   <string name="sonido_si">Sonido: sí</string>
   <string name="sonido_no">Sonido: no</string>
   <string name="transmitir">Transmitir</string>

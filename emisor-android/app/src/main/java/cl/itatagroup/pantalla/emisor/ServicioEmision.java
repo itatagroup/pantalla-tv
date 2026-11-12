@@ -57,7 +57,6 @@ public class ServicioEmision extends Service {
     static final String EXTRA_LADO = "lado";
     static final String EXTRA_FPS = "fps";
     static final String EXTRA_KBPS = "kbps";
-    static final String EXTRA_RETARDO = "retardo";
     static final String EXTRA_SONIDO = "sonido";
 
     private static final String CANAL = "transmision";
@@ -82,7 +81,6 @@ public class ServicioEmision extends Service {
     private int puerto;
     private int fps;
     private int kbps;
-    private int retardoMs;
     private boolean conSonido;
     private int ancho;
     private int alto;
@@ -105,7 +103,6 @@ public class ServicioEmision extends Service {
         puerto = intent.getIntExtra(EXTRA_PUERTO, Protocolo.PUERTO_TCP);
         fps = intent.getIntExtra(EXTRA_FPS, 30);
         kbps = intent.getIntExtra(EXTRA_KBPS, 6000);
-        retardoMs = intent.getIntExtra(EXTRA_RETARDO, 500);
         conSonido = intent.getBooleanExtra(EXTRA_SONIDO, false)
                 && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         medirPantalla(intent.getIntExtra(EXTRA_LADO, 1280));
@@ -213,7 +210,7 @@ public class ServicioEmision extends Service {
 
             if (conSonido) audio = abrirAudio();
             synchronized (out) {
-                byte[] hello = Protocolo.hello(ancho, alto, fps, audio != null ? TASA_AUDIO : 0, 2, retardoMs);
+                byte[] hello = Protocolo.hello(ancho, alto, fps, audio != null ? TASA_AUDIO : 0, 2);
                 Protocolo.escribir(out, Protocolo.HELLO, 0, hello, 0, hello.length);
             }
             int tipo = in.readUnsignedByte();

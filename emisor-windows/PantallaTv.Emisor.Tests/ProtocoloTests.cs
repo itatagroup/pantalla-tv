@@ -21,12 +21,12 @@ public class ProtocoloTests
     }
 
     [Fact]
-    public void Hello_lleva_17_bytes_de_carga_con_el_retardo_al_final()
+    public void Hello_lleva_18_bytes_de_carga_con_retardo_cero_y_las_banderas_al_final()
     {
-        var m = Protocolo.ArmarHello(1920, 1080, 60, 48000, 2, "12", 2000);
+        var m = Protocolo.ArmarHello(1920, 1080, 60, 48000, 2, "12", interactiva: true);
         var c = m.AsSpan(13);
 
-        Assert.Equal(17, c.Length);
+        Assert.Equal(18, c.Length);
         Assert.Equal(1, c[0]);
         Assert.Equal(1920, BinaryPrimitives.ReadUInt16BigEndian(c.Slice(1, 2)));
         Assert.Equal(1080, BinaryPrimitives.ReadUInt16BigEndian(c.Slice(3, 2)));
@@ -34,7 +34,9 @@ public class ProtocoloTests
         Assert.Equal(48000u, BinaryPrimitives.ReadUInt32BigEndian(c.Slice(6, 4)));
         Assert.Equal(2, c[10]);
         Assert.Equal("0012", Encoding.ASCII.GetString(c.Slice(11, 4))); // el PIN se rellena con ceros
-        Assert.Equal(2000, BinaryPrimitives.ReadUInt16BigEndian(c.Slice(15, 2)));
+        Assert.Equal(0, BinaryPrimitives.ReadUInt16BigEndian(c.Slice(15, 2))); // los receptores viejos usan el suyo
+        Assert.Equal(Protocolo.BanderaInteractiva, c[17]);
+        Assert.Equal(0, Protocolo.ArmarHello(1920, 1080, 60, 0, 0, "0", interactiva: false).AsSpan(13)[17]);
     }
 
     [Fact]
@@ -135,7 +137,7 @@ public class EmisionTests
     public async Task Un_receptor_ocupado_da_un_mensaje_claro_y_recibio_un_HELLO_correcto()
     {
         var (receptor, saludo) = await ReceptorFalsoAsync(Protocolo.HelloErr, "ocupado");
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 2000, null);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, true, null);
 
         var e = await Assert.ThrowsAsync<EmisionException>(
             () => new Emision().EjecutarAsync(receptor, op, null, CancellationToken.None));
@@ -144,8 +146,8 @@ public class EmisionTests
         var hello = await saludo;
         Assert.NotNull(hello);
         Assert.Equal(Protocolo.Hello, hello.Tipo);
-        Assert.Equal(17, hello.Carga.Length);
-        Assert.Equal(2000, BinaryPrimitives.ReadUInt16BigEndian(hello.Carga.AsSpan(15, 2)));
+        Assert.Equal(18, hello.Carga.Length);
+        Assert.Equal(Protocolo.BanderaInteractiva, hello.Carga[17]);
     }
 
     [Fact]
@@ -155,7 +157,7 @@ public class EmisionTests
         libre.Start();
         var puerto = ((IPEndPoint)libre.LocalEndpoint).Port;
         libre.Stop(); // el puerto queda cerrado
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, null);
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, null);
 
         var e = await Assert.ThrowsAsync<EmisionException>(() =>
             new Emision().EjecutarAsync(new Receptor("Nadie", IPAddress.Loopback, puerto), op, null, CancellationToken.None));
@@ -171,7 +173,7 @@ public class EmisionTests
         var escucha = new TcpListener(IPAddress.Loopback, 0);
         escucha.Start();
         var receptor = new Receptor("Falso", IPAddress.Loopback, ((IPEndPoint)escucha.LocalEndpoint).Port);
-        var op = new OpcionesEmision(60, 8000, 1920, 1080, 0, @"C:\no\existe\ffmpeg.exe", Tuberia: "amf,x264");
+        var op = new OpcionesEmision(60, 8000, 1920, 1080, false, @"C:\no\existe\ffmpeg.exe", Tuberia: "amf,x264");
 
         var e = await Assert.ThrowsAsync<EmisionException>(
             () => new Emision().EjecutarAsync(receptor, op, null, CancellationToken.None));

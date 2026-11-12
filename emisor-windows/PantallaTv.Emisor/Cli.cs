@@ -8,7 +8,7 @@ namespace PantallaTv.Emisor;
 /// Modo de consola para probar y automatizar sin la bandeja.
 /// <code>
 /// PantallaTv.exe --descubrir [--seg 6]
-/// PantallaTv.exe --cli --ip 10.0.0.20 [--retardo 2000] [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual] [--reconectar]
+/// PantallaTv.exe --cli --ip 10.0.0.20 [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual] [--reconectar]
 ///     (solo con la nativa:) [--latido 30] [--sin-cursor]; --kbps es el tope y --clave, una clave de seguridad (0 = solo a pedido)
 /// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
@@ -175,7 +175,7 @@ internal static class Cli
     {
         var op = new OpcionesEmision(Numero(args, "--fps", 60), Numero(args, "--kbps", 8000),
             pantalla.Ancho, pantalla.Alto,
-            Monitores.RetardoPara(Monitores.EsElVirtual(pantalla), args.Contains("--retardo") ? Numero(args, "--retardo", 500) : null, 500), Texto(args, "--ffmpeg"), Texto(args, "--tuberia"), !args.Contains("--sin-audio"), !args.Contains("--no-silenciar"),
+            Monitores.EsElVirtual(pantalla), Texto(args, "--ffmpeg"), Texto(args, "--tuberia"), !args.Contains("--sin-audio"), !args.Contains("--no-silenciar"),
             Numero(args, "--clave", 0), Texto(args, "--codec-extra"), pantalla.Salida, pantalla.Adaptador, pantalla.Nombre,
             Numero(args, "--latido", Nativa.TuberiaNativa.LatidoPorDefecto), !args.Contains("--sin-cursor"));
         using var telemetria = args.Contains("--telemetria") ? new Telemetria(Ajustes.CarpetaTelemetria) : null;
