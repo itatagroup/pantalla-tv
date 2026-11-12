@@ -89,8 +89,9 @@ Lo mismo en las tres:
 ### En un teléfono o tablet
 
 «Pantalla» aparece en el lanzador normal. En la espera se puede girar el equipo; al llegar una transmisión se pone
-en horizontal o vertical según la imagen, en pantalla completa y sin apagarse. Tocar la pantalla muestra unos
-segundos una barra con «Retardo» y «Terminar»; Atrás también termina la sesión.
+en horizontal o vertical según la imagen, en pantalla completa y sin apagarse. El botón «Orientación»
+(automática → horizontal → vertical) la fija antes de conectar o durante la sesión, y se recuerda. Tocar la pantalla
+muestra unos segundos una barra con «Retardo», «Orientación» y «Terminar»; Atrás también termina la sesión.
 
 ## Instalar
 

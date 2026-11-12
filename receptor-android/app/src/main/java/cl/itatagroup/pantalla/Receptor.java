@@ -41,6 +41,8 @@ public class Receptor extends Activity {
     private static final int[] RETARDOS_MS = {0, 500, 1000, 2000};
     private static final String PREFS = "pantalla";
     private static final String PREF_RETARDO = "retardo_ms";
+    /** Táctil: 0 = automática (según la imagen al transmitir), 1 = siempre horizontal, 2 = siempre vertical. */
+    private static final String PREF_ORIENTACION = "orientacion";
     /** Cuánto queda a la vista la barra de la sesión (táctil) después de tocar. */
     private static final long BARRA_MS = 4000;
     /**
@@ -67,6 +69,9 @@ public class Receptor extends Activity {
     private int altoImagen;
     private View barraSesion;
     private Button sesionRetardo;
+    private Button botonOrientacion;
+    private Button sesionOrientacion;
+    private int orientacion;
     private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
     private final Runnable ocultarBarra = () -> barraSesion.setVisibility(View.GONE);
 
@@ -108,11 +113,10 @@ public class Receptor extends Activity {
                 textoEstado.setVisibility(View.VISIBLE);
                 ajustarProporcion(ancho, alto);
                 if (!esTv) {
-                    // Táctil: la pantalla no se apaga mientras se transmite, y se gira según la imagen.
+                    // Táctil: la pantalla no se apaga mientras se transmite, y se gira según la imagen
+                    // (salvo que la orientación esté fijada).
                     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    setRequestedOrientation(ancho >= alto
-                            ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                            : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+                    aplicarOrientacion();
                 }
             });
         }
@@ -133,7 +137,7 @@ public class Receptor extends Activity {
                     hiloPrincipal.removeCallbacks(ocultarBarra);
                     barraSesion.setVisibility(View.GONE);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                    aplicarOrientacion();
                 }
                 mostrarEsperando();
             });
@@ -249,6 +253,36 @@ public class Receptor extends Activity {
         // Giró el equipo: la imagen se vuelve a encajar cuando el contenedor ya tiene su tamaño nuevo.
         View padre = (View) video.getParent();
         padre.post(() -> ajustarProporcion(anchoImagen, altoImagen));
+        if (!esTv) disponerTactil();
+    }
+
+    /**
+     * Botones de la espera en un teléfono o tablet: en vertical, en columna y del mismo ancho; en horizontal, en
+     * fila. Siempre con aire entre uno y otro, y el texto de espera más arriba para que no quede debajo.
+     */
+    private void disponerTactil() {
+        float densidad = getResources().getDisplayMetrics().density;
+        boolean vertical = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+        int separacion = Math.round(8 * densidad);
+        // Lo mismo para los botones de la espera y para la barra de la sesión.
+        for (int id : new int[] {R.id.fila_botones, R.id.barra_sesion}) {
+            LinearLayout fila = (LinearLayout) findViewById(id);
+            fila.setOrientation(vertical ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+            for (int i = 0; i < fila.getChildCount(); i++) {
+                Button b = (Button) fila.getChildAt(i);
+                b.setTextSize(vertical ? 18 : 15);
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) b.getLayoutParams();
+                lp.width = vertical ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+                lp.topMargin = lp.bottomMargin = vertical ? separacion : 0;
+                lp.leftMargin = lp.rightMargin = separacion;
+                b.setLayoutParams(lp);
+            }
+        }
+        textoEstado.setTextSize(vertical ? 22 : 20);
+        int lado = Math.round(24 * densidad);
+        // Lo que ocupan los botones abajo: en vertical, tres en columna; en horizontal, una fila.
+        int abajo = Math.round((vertical ? 300 : 130) * densidad);
+        textoEstado.setPadding(lado, 0, lado, abajo);
     }
 
     private boolean esTelevision() {
@@ -259,13 +293,21 @@ public class Receptor extends Activity {
 
     /** Teléfono o tablet: botones en columna, texto más chico y la barra de la sesión que aparece al tocar. */
     private void prepararTactil() {
-        ((LinearLayout) findViewById(R.id.fila_botones)).setOrientation(LinearLayout.VERTICAL);
-        textoEstado.setTextSize(22);
-        textoEstado.setPadding(48, 0, 48, 0);
+        disponerTactil();
         sesionRetardo.setOnClickListener(v -> {
             fijarRetardo((retardoElegido + 1) % RETARDOS_MS.length);
             mostrarBarra();
         });
+        orientacion = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(PREF_ORIENTACION, 0) % 3;
+        botonOrientacion = (Button) findViewById(R.id.boton_orientacion);
+        sesionOrientacion = (Button) findViewById(R.id.sesion_orientacion);
+        botonOrientacion.setVisibility(View.VISIBLE);
+        botonOrientacion.setOnClickListener(v -> cambiarOrientacion());
+        sesionOrientacion.setOnClickListener(v -> {
+            cambiarOrientacion();
+            mostrarBarra();
+        });
+        aplicarOrientacion();
         findViewById(R.id.sesion_terminar).setOnClickListener(v -> {
             if (servidor != null) servidor.terminarSesion();
         });
@@ -281,6 +323,33 @@ public class Receptor extends Activity {
         video.setOnClickListener(tocar);
         textoEstado.setOnClickListener(tocar);
         ((View) video.getParent()).setOnClickListener(tocar);
+    }
+
+    /** Automática → horizontal → vertical. Se recuerda para la próxima vez. */
+    private void cambiarOrientacion() {
+        orientacion = (orientacion + 1) % 3;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(PREF_ORIENTACION, orientacion).apply();
+        aplicarOrientacion();
+    }
+
+    /**
+     * Fijada: siempre esa (se puede dar vuelta 180°, nunca pasar a la otra). Automática: libre en la espera y, con
+     * una sesión, según la proporción de la imagen.
+     */
+    private void aplicarOrientacion() {
+        int pedida;
+        if (orientacion == 1) pedida = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+        else if (orientacion == 2) pedida = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        else if (enSesion && anchoImagen > 0 && altoImagen > 0) {
+            pedida = anchoImagen >= altoImagen
+                    ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    : ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        } else pedida = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        setRequestedOrientation(pedida);
+        int texto = orientacion == 1 ? R.string.orientacion_horizontal
+                : orientacion == 2 ? R.string.orientacion_vertical : R.string.orientacion_auto;
+        botonOrientacion.setText(texto);
+        sesionOrientacion.setText(texto);
     }
 
     private void mostrarBarra() {

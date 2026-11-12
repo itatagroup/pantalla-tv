@@ -8,6 +8,9 @@
   <string name="retardo_boton">Retardo: %1$s</string>
   <string name="retardo_aviso">Retardo: %1$s</string>
   <string name="terminar">Terminar</string>
+  <string name="orientacion_auto">Orientación: automática</string>
+  <string name="orientacion_horizontal">Orientación: horizontal</string>
+  <string name="orientacion_vertical">Orientación: vertical</string>
   <!-- Actualizaciones -->
   <string name="buscar">Buscar actualización</string>
   <string name="buscando">Buscando…</string>

@@ -45,6 +45,8 @@
         android:orientation="horizontal">
       <Button android:id="@+id/boton_retardo" style="@style/Boton"/>
       <Button android:id="@+id/boton_actualizar" style="@style/Boton" android:text="@string/actualizar" android:visibility="gone"/>
+      <!-- Solo táctil: fija la orientación antes de conectar (y durante la sesión, en la barra). -->
+      <Button android:id="@+id/boton_orientacion" style="@style/Boton" android:visibility="gone"/>
       <Button android:id="@+id/boton_buscar" style="@style/Boton" android:text="@string/buscar"/>
     </LinearLayout>
   </LinearLayout>
@@ -56,10 +58,12 @@
       android:layout_gravity="bottom|center_horizontal"
       android:layout_marginBottom="24dp"
       android:background="#B3000000"
+      android:gravity="center_horizontal"
       android:orientation="horizontal"
       android:padding="8dp"
       android:visibility="gone">
     <Button android:id="@+id/sesion_retardo" style="@style/Boton"/>
+    <Button android:id="@+id/sesion_orientacion" style="@style/Boton"/>
     <Button android:id="@+id/sesion_terminar" style="@style/Boton" android:text="@string/terminar"/>
   </LinearLayout>
 </FrameLayout>
