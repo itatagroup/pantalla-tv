@@ -22,40 +22,14 @@ internal sealed class ManejadorFalso(Func<HttpRequestMessage, HttpResponseMessag
     }
 }
 
-/// <summary>Un reloj que no corre: guarda el temporizador pedido para dispararlo a mano.</summary>
-internal sealed class RelojFalso : TimeProvider
-{
-    public TimerCallback? Callback;
-    public object? Estado;
-    public TimeSpan Espera, Periodo;
-
-    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-    {
-        Callback = callback;
-        Estado = state;
-        Espera = dueTime;
-        Periodo = period;
-        return new Temporizador();
-    }
-
-    public void Disparar() => Callback!(Estado);
-
-    private sealed class Temporizador : ITimer
-    {
-        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
-        public void Dispose() { }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    }
-}
-
 /// <summary>
 /// Las reglas de <c>docs/actualizaciones.md</c>: firma, repo, versión, URL, tamaño y huella; y lo que hace
-/// <see cref="Mando"/> con ellas (no ofrecer mientras transmite, apagado sin conexiones).
+/// <see cref="Mando"/> con ellas (solo busca cuando se le pide, no ofrece mientras transmite).
 /// </summary>
 public sealed class ActualizacionesTests : IDisposable
 {
     private const string Prefijo = "https://github.com/itatagroup/pantalla-tv/releases/download/";
-    private static readonly Uri UrlManifiesto = new("https://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json");
+    private static readonly Uri UrlManifiesto = ComprobadorActualizaciones.ManifiestoPorDefecto;
     private static readonly Version Actual = new(0, 8, 0, 0);
 
     private readonly ECDsa _clave = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -224,8 +198,8 @@ public sealed class ActualizacionesTests : IDisposable
     private ManejadorFalso Servidor(byte[] manifiesto, byte[] instalador, byte[]? firma = null) => new(req =>
     {
         var ruta = req.RequestUri!.AbsolutePath;
-        if (ruta.EndsWith("/version.json")) return Ok(manifiesto);
-        if (ruta.EndsWith("/version.json.sig")) return Ok(firma ?? Firmar(_clave, manifiesto));
+        if (ruta.EndsWith("/emisor-windows.json")) return Ok(manifiesto);
+        if (ruta.EndsWith("/emisor-windows.json.sig")) return Ok(firma ?? Firmar(_clave, manifiesto));
         if (ruta.EndsWith(".exe")) return Ok(instalador);
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     });
@@ -277,7 +251,7 @@ public sealed class ActualizacionesTests : IDisposable
     public async Task Un_manifiesto_por_http_ni_se_pide()
     {
         using var c = Comprobador(new ManejadorFalso(_ => throw new InvalidOperationException("no debió pedirse")),
-            new Uri("http://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json"));
+            new Uri("http://github.com/itatagroup/pantalla-tv/releases/download/actualizaciones/emisor-windows.json"));
         Assert.Equal(Rechazo.Red, (await c.BuscarAsync()).Rechazo);
     }
 
@@ -344,68 +318,49 @@ public sealed class ActualizacionesTests : IDisposable
 
     // ── Lo que hace el Mando ───────────────────────────────────────────────────────────────────
 
-    private Mando NuevoMando(HttpMessageHandler handler, TimeProvider? reloj = null, bool buscar = true)
+    private Mando NuevoMando(HttpMessageHandler handler)
     {
         var ajustes = Ajustes.Cargar(Path.Combine(_carpeta, "ajustes.json"));
         ajustes.ConAudio = false; // en pruebas automáticas, nunca el audio
-        ajustes.BuscarActualizaciones = buscar;
-        return new Mando(ajustes, new ContextoInmediato(), () => [], comprobador: Comprobador(handler), reloj: reloj)
+        return new Mando(ajustes, new ContextoInmediato(), () => [], comprobador: Comprobador(handler))
         {
             LanzarInstalador = _ => throw new InvalidOperationException("no debió abrirse ningún instalador"),
         };
     }
 
-    private static ManejadorFalso QueFalla() => new(_ => throw new InvalidOperationException("apagado no debió conectarse"));
+    [Fact]
+    public void El_manifiesto_es_el_propio_del_emisor_en_el_release_fijo() =>
+        Assert.Equal("https://github.com/itatagroup/pantalla-tv/releases/download/actualizaciones/emisor-windows.json",
+            ComprobadorActualizaciones.ManifiestoPorDefecto.AbsoluteUri);
 
     [Fact]
-    public async Task Apagado_no_hace_ningun_pedido()
+    public void Al_abrir_no_se_conecta_a_nada()
     {
-        var reloj = new RelojFalso();
-        var handler = QueFalla();
-        using var mando = NuevoMando(handler, reloj, buscar: false);
+        var handler = new ManejadorFalso(_ => throw new InvalidOperationException("no debió conectarse solo"));
+        using var mando = NuevoMando(handler);
         mando.IniciarActualizaciones();
-        reloj.Disparar(); // la vuelta del temporizador
-        await mando.ComprobarAsync(manual: true);
-        mando.BuscarActualizacionesAhora();
         Assert.Equal(0, handler.Pedidos);
-        Assert.False(mando.PuedeBuscarActualizaciones);
+        Assert.True(mando.PuedeBuscarActualizaciones);
         Assert.Null(mando.NovedadOfrecida);
     }
 
     [Fact]
-    public void Busca_a_los_20_segundos_de_abrir_y_despues_cada_24_horas()
-    {
-        var reloj = new RelojFalso();
-        using var mando = NuevoMando(QueFalla(), reloj, buscar: false);
-        mando.IniciarActualizaciones();
-        Assert.Equal(TimeSpan.FromSeconds(20), reloj.Espera);
-        Assert.Equal(TimeSpan.FromHours(24), reloj.Periodo);
-    }
-
-    [Fact]
-    public async Task Ofrece_la_version_nueva_y_Despues_no_vuelve_a_avisar_de_esa()
+    public async Task Ofrece_la_version_nueva_y_Despues_la_esconde_hasta_la_proxima_busqueda()
     {
         var handler = Servidor(Manifiesto(), "abc"u8.ToArray());
         using var mando = NuevoMando(handler);
         var avisos = new List<string>();
         mando.Aviso += (t, _) => avisos.Add(t);
 
-        await mando.ComprobarAsync(manual: false);
+        await mando.ComprobarAsync();
         Assert.Equal("0.8.1", mando.NovedadOfrecida?.Texto);
         Assert.Single(avisos, a => a.Contains("Hay una versión nueva (0.8.1): Arreglos"));
 
         mando.PosponerActualizacion();
         Assert.Null(mando.NovedadOfrecida);
-        await mando.ComprobarAsync(manual: false); // la búsqueda del día siguiente
-        Assert.Null(mando.NovedadOfrecida);
-        Assert.Single(avisos);
 
-        await mando.ComprobarAsync(manual: true); // «Buscar ahora» la vuelve a ofrecer
+        await mando.ComprobarAsync(); // buscar de nuevo la vuelve a ofrecer
         Assert.NotNull(mando.NovedadOfrecida);
-
-        mando.CambiarBuscarActualizaciones(false); // apagar deja de ofrecerla
-        Assert.Null(mando.NovedadOfrecida);
-        Assert.False(Ajustes.Cargar(mando.Ajustes.Ruta).BuscarActualizaciones);
     }
 
     [Fact]
@@ -414,19 +369,28 @@ public sealed class ActualizacionesTests : IDisposable
         using var otra = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var m = Manifiesto();
         using var mando = NuevoMando(Servidor(m, "abc"u8.ToArray(), Firmar(otra, m)));
-        var avisos = new List<(string, ToolTipIcon)>();
+        var avisos = new List<(string Texto, ToolTipIcon Icono)>();
         mando.Aviso += (t, i) => avisos.Add((t, i));
-        await mando.ComprobarAsync(manual: false);
+        await mando.ComprobarAsync();
         Assert.Null(mando.NovedadOfrecida);
-        Assert.Empty(avisos);
+        var aviso = Assert.Single(avisos);
+        Assert.Equal(ToolTipIcon.Info, aviso.Icono);
+        Assert.StartsWith("No se pudo comprobar", aviso.Texto);
+    }
+
+    [Fact]
+    public void El_pedido_de_cierre_es_de_una_carpeta()
+    {
+        Assert.Equal(Arranque.NombreCerrar(@"C:\Programas\Pantalla TV"), Arranque.NombreCerrar(@"c:\programas\pantalla tv\"));
+        Assert.NotEqual(Arranque.NombreCerrar(@"C:\Programas\Pantalla TV"), Arranque.NombreCerrar(@"C:\prueba"));
     }
 
     /// <summary>
     /// Mientras se transmite (una transmisión de verdad contra un receptor falso que no contesta el saludo) no se
-    /// ofrece ni se descarga nada; al detener, sale el aviso.
+    /// ofrece ni se descarga nada; al detener, queda ofrecida.
     /// </summary>
     [Fact]
-    public async Task No_ofrece_ni_instala_mientras_transmite_y_avisa_al_terminar()
+    public async Task No_ofrece_ni_instala_mientras_transmite_y_la_ofrece_al_terminar()
     {
         var escucha = new TcpListener(IPAddress.Loopback, 0);
         escucha.Start();
@@ -442,9 +406,9 @@ public sealed class ActualizacionesTests : IDisposable
             using var cliente = await aceptada.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True(mando.Transmitiendo);
 
-            await mando.ComprobarAsync(manual: false);
+            await mando.ComprobarAsync();
             Assert.Null(mando.NovedadOfrecida);
-            Assert.DoesNotContain(avisos, a => a.Contains("versión nueva"));
+            Assert.Contains(avisos, a => a.Contains("se ofrece al terminar de transmitir"));
             await mando.ActualizarAhoraAsync(); // no hace nada: no hay nada ofrecido
             Assert.Equal(2, handler.Pedidos); // solo el manifiesto y la firma
 
@@ -455,7 +419,6 @@ public sealed class ActualizacionesTests : IDisposable
                 Assert.True(DateTime.UtcNow < limite, "no terminó al detener");
                 await Task.Delay(50);
             }
-            Assert.Contains(avisos, a => a.Contains("Hay una versión nueva (0.8.1)"));
             Assert.Equal("0.8.1", mando.NovedadOfrecida?.Texto);
         }
         finally
@@ -530,7 +493,7 @@ public sealed class ActualizacionesTests : IDisposable
             var avances = new ConcurrentQueue<int?>();
             mando.Cambio += () => avances.Enqueue(mando.AvanceDescarga);
 
-            await mando.ComprobarAsync(manual: true);
+            await mando.ComprobarAsync();
             Assert.Equal("0.9.0", mando.NovedadOfrecida?.Texto);
             Assert.Equal("Prueba local", mando.NovedadOfrecida?.Notas);
 

@@ -100,7 +100,7 @@ internal static class Instalacion
     public static bool CerrarAbiertos(string carpeta, TimeSpan espera)
     {
         if (AbiertosDesde(carpeta) == 0) return true;
-        if (!Arranque.PedirQueSeCierre()) return false;
+        if (!Arranque.PedirQueSeCierre(carpeta)) return false;
         var reloj = Stopwatch.StartNew();
         while (reloj.Elapsed < espera)
         {

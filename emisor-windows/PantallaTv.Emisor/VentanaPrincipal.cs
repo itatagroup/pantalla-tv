@@ -66,8 +66,7 @@ internal sealed class VentanaPrincipal : Form
     private readonly Boton _diagnostico = new() { Text = "Diag&nóstico para enviar…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaDiagnostico = new() { UseMnemonic = false };
     private readonly Label _notaBloqueoAvanzado = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
-    private readonly Casilla _buscarActualizaciones = new() { Text = "B&uscar actualizaciones (una vez al día, en GitHub)" };
-    private readonly Boton _buscarAhora = new() { Text = "Buscar a&hora", Estilo = EstiloBoton.Secundario };
+    private readonly Boton _buscarAhora = new() { Text = "B&uscar actualizaciones", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaActualizaciones = new() { UseMnemonic = false };
 
     private readonly Label _version = new() { Text = $"Pantalla TV {Instalacion.Version}", UseMnemonic = false };
@@ -113,14 +112,14 @@ internal sealed class VentanaPrincipal : Form
         _vivo.Controls.AddRange([.. _vivoEtiquetas, .. _vivoValores]);
         _ajustes.Controls.AddRange([_notaBloqueo, _etiquetaRetardo, _retardo, _notaRetardo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
-            _buscarActualizaciones, _buscarAhora, _notaActualizaciones]);
+            _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
         OrdenTab(_actualizar, _despues);
         OrdenTab(_etiquetaTv, _tvs, _escribirIp, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_etiquetaRetardo, _retardo, _sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarActualizaciones, _buscarAhora);
+        OrdenTab(_etiquetaForma, _forma, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
         foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaRetardo, _etiquetaForma, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
@@ -142,7 +141,6 @@ internal sealed class VentanaPrincipal : Form
         _diagnostico.Click += (_, _) => _mando.Diagnosticar();
         _actualizar.Click += (_, _) => _mando.ActualizarAhora();
         _despues.Click += (_, _) => _mando.PosponerActualizacion();
-        _buscarActualizaciones.CheckedChanged += (_, _) => { if (!_refrescando) _mando.CambiarBuscarActualizaciones(_buscarActualizaciones.Checked); };
         _buscarAhora.Click += (_, _) => _mando.BuscarActualizacionesAhora();
         _botonSalir.Click += (_, _) => _salir();
         ResumeLayout(false);
@@ -323,12 +321,10 @@ internal sealed class VentanaPrincipal : Form
             _inicio.Checked = puedeInicio && m.IniciaConWindows;
             _notaInicio.Visible = !puedeInicio;
 
-            _buscarActualizaciones.Checked = m.Ajustes.BuscarActualizaciones;
             _buscarAhora.Enabled = m.PuedeBuscarActualizaciones;
-            _buscarAhora.Text = m.BuscandoActualizaciones ? "Buscando…" : "Buscar a&hora";
-            _notaActualizaciones.Text = !m.Ajustes.BuscarActualizaciones
-                ? "Apagado: el programa no se conecta a internet."
-                : m.EstadoActualizaciones ?? $"Mira el último release publicado en GitHub; no envía nada. Versión instalada: {Instalacion.Version}.";
+            _buscarAhora.Text = m.BuscandoActualizaciones ? "Buscando…" : "B&uscar actualizaciones";
+            _notaActualizaciones.Text = m.EstadoActualizaciones ??
+                $"Solo cuando lo pulsas: mira en GitHub si hay una versión publicada, sin enviar nada. Versión instalada: {Instalacion.Version}.";
 
             _diagnostico.Enabled = m.PuedeDiagnosticar;
             _notaDiagnostico.Text = m.Diagnosticando ? "Preparando el diagnóstico (unos segundos)…"
@@ -567,7 +563,6 @@ internal sealed class VentanaPrincipal : Form
             cy += altoBoton;
             cy = Nota(_notaDiagnostico, relleno + mitad + S(8), cy + S(6), interior - mitad - S(8));
             cy += S(14);
-            cy = Casilla(_buscarActualizaciones, relleno, cy, interior);
             var anchoBuscar = TextRenderer.MeasureText(_buscarAhora.Text.Replace("&", ""), _buscarAhora.Font).Width + S(34);
             Poner(_buscarAhora, relleno - S(3), cy + S(4) - S(3), anchoBuscar + S(6), altoBoton + S(6));
             cy += S(4) + altoBoton;

@@ -18,6 +18,6 @@
       </intent-filter>
     </activity>
     <!-- Resultado de la sesión de instalación de una actualización. Solo le llega el PendingIntent propio. -->
-    <receiver android:name=".ResultadoInstalacion" android:exported="false"/>
+    <receiver android:name="cl.itatagroup.actualizacion.ResultadoInstalacion" android:exported="false"/>
   </application>
 </manifest>

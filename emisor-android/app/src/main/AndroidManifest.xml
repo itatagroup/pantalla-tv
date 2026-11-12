@@ -9,6 +9,8 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <!-- Solo para capturar el sonido que reproduce el teléfono; se pide al activar «Enviar sonido». -->
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <!-- Para instalar una versión nueva cuando la buscas tú; Android siempre muestra su confirmación. -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
   <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
   <uses-feature android:name="android.software.leanback" android:required="false"/>
   <uses-feature android:name="android.hardware.microphone" android:required="false"/>
@@ -20,6 +22,8 @@
         <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
       </intent-filter>
     </activity>
+    <!-- Resultado de la sesión de instalación de una actualización. Solo le llega el PendingIntent propio. -->
+    <receiver android:name="cl.itatagroup.actualizacion.ResultadoInstalacion" android:exported="false"/>
     <service android:name=".ServicioEmision" android:exported="false" android:foregroundServiceType="mediaProjection"/>
   </application>
 </manifest>

@@ -6,9 +6,6 @@ import android.content.Intent;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.format.Formatter;
 import android.util.Log;
@@ -24,6 +21,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import cl.itatagroup.actualizacion.Actualizador;
 
 /** Pantalla del receptor: mientras está abierta, escucha y se anuncia; al recibir vídeo lo muestra completo. */
 public class Receptor extends Activity {
@@ -32,11 +30,12 @@ public class Receptor extends Activity {
     private static final int[] RETARDOS_MS = {0, 500, 1000, 2000};
     private static final String PREFS = "pantalla";
     private static final String PREF_RETARDO = "retardo_ms";
-    private static final String PREF_AUTO = "actualizar_auto";
-    /** Dónde se publica la versión nueva (contrato común de actualización). */
+    /**
+     * El manifiesto propio del receptor (contrato común de actualización, docs/actualizaciones.md): cada app del
+     * repo tiene el suyo en el release fijo «actualizaciones», así sus versiones no dependen de las otras.
+     */
     private static final String MANIFIESTO =
-            "https://github.com/itatagroup/pantalla-tv/releases/latest/download/version.json";
-    private static final long REVISAR_CADA_MS = 24L * 60 * 60 * 1000;
+            "https://github.com/itatagroup/pantalla-tv/releases/download/actualizaciones/receptor-android.json";
 
     private volatile Surface superficie;
     private volatile int retardoElegido;
@@ -48,20 +47,17 @@ public class Receptor extends Activity {
     private Servidor servidor;
     private Anunciante anunciante;
 
-    // Actualizaciones: todo en el hilo de la interfaz, y solo mientras está la pantalla de espera.
+    // Actualizaciones: solo cuando se pulsa «Buscar actualización» (nunca sola), todo en el hilo de la interfaz y
+    // solo en la pantalla de espera.
     private View controles;
     private TextView aviso;
     private Button botonRetardo;
     private Button botonActualizar;
-    private Button botonAuto;
+    private Button botonBuscar;
     private Actualizador actualizador;
     private Actualizador.Oferta oferta;
+    private boolean buscando;
     private boolean descargando;
-    private boolean abierta;
-    /** elapsedRealtime de la última consulta; 0 = consultar apenas se pueda. */
-    private long ultimaRevision;
-    private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
-    private final Runnable revisar = this::revisarActualizacion;
 
     private final Sesion.Pantalla pantalla = new Sesion.Pantalla() {
         @Override
@@ -120,9 +116,9 @@ public class Receptor extends Activity {
         aviso = (TextView) findViewById(R.id.aviso);
         botonRetardo = (Button) findViewById(R.id.boton_retardo);
         botonActualizar = (Button) findViewById(R.id.boton_actualizar);
-        botonAuto = (Button) findViewById(R.id.boton_auto);
+        botonBuscar = (Button) findViewById(R.id.boton_buscar);
         botonRetardo.setOnClickListener(v -> fijarRetardo((retardoElegido + 1) % RETARDOS_MS.length));
-        botonAuto.setOnClickListener(v -> cambiarAutomaticas());
+        botonBuscar.setOnClickListener(v -> buscarActualizacion());
         botonActualizar.setOnClickListener(v -> actualizar());
         actualizador = new Actualizador(this, "itatagroup/pantalla-tv", "receptor-android", "Pantalla");
         video.getHolder().addCallback(new SurfaceHolder.Callback() {
@@ -152,8 +148,6 @@ public class Receptor extends Activity {
         bloqueoWifi = wifi.createWifiLock(modo, "pantalla-tv");
         bloqueoWifi.setReferenceCounted(false);
         bloqueoWifi.acquire();
-        abierta = true;
-        ultimaRevision = 0; // al abrir se consulta de nuevo
 
         try {
             servidor = new Servidor(pantalla, estado);
@@ -214,7 +208,6 @@ public class Receptor extends Activity {
 
     @Override
     protected void onStop() {
-        abierta = false;
         detenerActualizaciones();
         if (anunciante != null) anunciante.detener();
         if (servidor != null) servidor.detener();
@@ -263,64 +256,54 @@ public class Receptor extends Activity {
         textoEstado.setText(getString(R.string.esperando) + "\n\n" + detalle);
         textoEstado.setVisibility(View.VISIBLE);
         botonRetardo.setText(getString(R.string.retardo_boton, descripcionRetardo()));
-        botonAuto.setText(automaticas() ? R.string.auto_si : R.string.auto_no);
+        botonBuscar.setText(buscando ? R.string.buscando : R.string.buscar);
         mostrarOferta();
         controles.setVisibility(View.VISIBLE);
         View foco = getCurrentFocus();
         if (foco == null || !foco.isShown()) botonRetardo.requestFocus();
-        programarRevision();
     }
 
     // --- actualizaciones (ver Actualizador y el README, «Actualizaciones») ---
 
-    private boolean automaticas() {
-        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_AUTO, true);
-    }
-
-    /** En «No» no se hace ninguna conexión: se corta lo que esté en curso y no se programa nada. */
-    private void cambiarAutomaticas() {
-        boolean activas = !automaticas();
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_AUTO, activas).apply();
-        botonAuto.setText(activas ? R.string.auto_si : R.string.auto_no);
-        detenerActualizaciones();
-        oferta = null;
-        ultimaRevision = 0;
-        mostrarOferta();
-        programarRevision();
-    }
-
-    /** Siguiente consulta: ya si nunca se hizo, o 24 h después de la última. Solo en espera y con «Sí». */
-    private void programarRevision() {
-        hiloPrincipal.removeCallbacks(revisar);
-        if (!abierta || enSesion || descargando || !automaticas()) return;
-        long espera = ultimaRevision == 0
-                ? 0
-                : Math.max(0, ultimaRevision + REVISAR_CADA_MS - SystemClock.elapsedRealtime());
-        hiloPrincipal.postDelayed(revisar, espera);
-    }
-
-    private void revisarActualizacion() {
-        if (!abierta || enSesion || descargando || !automaticas()) return;
-        ultimaRevision = SystemClock.elapsedRealtime();
+    /** «Buscar actualización»: la única forma en que el receptor se conecta a internet. */
+    private void buscarActualizacion() {
+        if (buscando || descargando || enSesion) return;
+        buscando = true;
+        botonBuscar.setText(R.string.buscando);
         actualizador.comprobar(urlManifiesto(), new Actualizador.AlComprobar() {
             @Override
             public void hayVersion(Actualizador.Oferta nueva) {
+                terminarBusqueda();
                 oferta = nueva;
                 mostrarOferta();
+                botonActualizar.requestFocus();
             }
 
             @Override
             public void alDia() {
+                terminarBusqueda();
                 oferta = null;
                 mostrarOferta();
+                avisar(getString(R.string.al_dia, actualizador.versionNombre()));
             }
 
             @Override
             public void fallo() {
-                // Sin aviso en pantalla (el detalle queda en el registro); se reintenta en 24 h.
+                // El detalle queda en el registro («Actualizador» en logcat).
+                terminarBusqueda();
+                avisar(getString(R.string.no_se_pudo_comprobar));
             }
         });
-        programarRevision();
+    }
+
+    private void terminarBusqueda() {
+        buscando = false;
+        botonBuscar.setText(R.string.buscar);
+    }
+
+    private void avisar(String texto) {
+        aviso.setText(texto);
+        aviso.setVisibility(View.VISIBLE);
     }
 
     /** Para pruebas: {@code am start -n cl.itatagroup.pantalla/.Receptor --es manifiesto_url https://…}. */
@@ -330,7 +313,7 @@ public class Receptor extends Activity {
     }
 
     private void mostrarOferta() {
-        if (descargando) return;
+        if (descargando || buscando) return;
         if (oferta == null) {
             boolean teniaFoco = botonActualizar.hasFocus();
             aviso.setVisibility(View.GONE);
@@ -354,7 +337,6 @@ public class Receptor extends Activity {
             return;
         }
         descargando = true;
-        hiloPrincipal.removeCallbacks(revisar);
         final Actualizador.Oferta pedida = oferta;
         aviso.setText(getString(R.string.descargando, pedida.version, 0));
         actualizador.descargarEInstalar(pedida, new Actualizador.AlDescargar() {
@@ -367,22 +349,20 @@ public class Receptor extends Activity {
             public void instalando() {
                 descargando = false;
                 aviso.setText(R.string.confirmar_instalacion);
-                programarRevision();
             }
 
             @Override
             public void fallo() {
                 descargando = false;
                 aviso.setText(R.string.descarga_fallida);
-                programarRevision();
             }
         });
     }
 
-    /** Corta consultas y descargas en curso (una sesión que llega, la app que se cierra, «No»). */
+    /** Corta la búsqueda o la descarga en curso (una sesión que llega, la app que se cierra). */
     private void detenerActualizaciones() {
-        hiloPrincipal.removeCallbacks(revisar);
         actualizador.cancelar();
+        if (buscando) terminarBusqueda();
         descargando = false;
     }
 

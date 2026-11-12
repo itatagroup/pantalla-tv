@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Firma el version.json de un release (ver docs/actualizaciones.md): ECDSA P-256 + SHA-256 sobre los bytes
-// EXACTOS del archivo, firma en DER y en base64, en una sola línea, en <version.json>.sig.
+// Firma el manifiesto de una app (<app>.json) (ver docs/actualizaciones.md): ECDSA P-256 + SHA-256 sobre los bytes
+// EXACTOS del archivo, firma en DER y en base64, en una sola línea, en <manifiesto>.sig.
 // Sin dependencias: solo node:crypto.
 //
-//   node herramientas/firmar-manifiesto.mjs <version.json> <clave.pem> [--esperada <clave pública SPKI en base64>]
+//   node herramientas/firmar-manifiesto.mjs <manifiesto.json> <clave.pem> [--esperada <clave pública SPKI en base64>]
 //
 // Con --esperada se niega a firmar si la clave privada no corresponde a esa pública (la que llevan las apps): una
 // firma con otra clave la rechazarían todas las instalaciones. Nunca imprime la clave privada ni su contenido.
@@ -21,7 +21,7 @@ const esperada = iEsperada >= 0 ? args[iEsperada + 1] : null;
 if (iEsperada >= 0) args.splice(iEsperada, 2);
 const [rutaManifiesto, rutaClave] = args;
 if (!rutaManifiesto || !rutaClave || (iEsperada >= 0 && !esperada)) {
-  fallar("Uso: node herramientas/firmar-manifiesto.mjs <version.json> <clave.pem> [--esperada <SPKI base64>]");
+  fallar("Uso: node herramientas/firmar-manifiesto.mjs <manifiesto.json> <clave.pem> [--esperada <SPKI base64>]");
 }
 
 const datos = readFileSync(rutaManifiesto);

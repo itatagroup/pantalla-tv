@@ -20,11 +20,6 @@ internal sealed class Ajustes
     public string? Tuberia { get; set; }
     /// <summary>Si se corta la conexión, volver a intentarlo solo hasta que el usuario detenga.</summary>
     public bool Reconectar { get; set; } = true;
-    /// <summary>
-    /// Buscar una vez al día si hay una versión nueva (un GET al <c>version.json</c> del último release en GitHub; ver
-    /// <see cref="ComprobadorActualizaciones"/>). Apagado no se conecta a nada.
-    /// </summary>
-    public bool BuscarActualizaciones { get; set; } = true;
     /// <summary>Ya se avisó una vez que cerrar la ventana deja el programa en la bandeja.</summary>
     public bool AvisoBandejaVisto { get; set; }
 

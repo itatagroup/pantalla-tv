@@ -19,6 +19,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import cl.itatagroup.actualizacion.Actualizador;
 import java.util.List;
 
 /**
@@ -36,6 +37,9 @@ public class Principal extends Activity {
     private static final int[] KBPS = {4000, 8000};
     private static final int[] FPS = {30, 60};
     private static final int[] RETARDOS = {0, 500, 1000, 2000};
+    /** El manifiesto propio de esta app (docs/actualizaciones.md); solo se pide al pulsar «Buscar actualización». */
+    private static final String MANIFIESTO =
+            "https://github.com/itatagroup/pantalla-tv/releases/download/actualizaciones/emisor-android.json";
 
     private final Handler reloj = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -49,6 +53,13 @@ public class Principal extends Activity {
     private Button bFluidez;
     private Button bRetardo;
     private Button bSonido;
+    private Button bBuscar;
+    private Button bActualizar;
+    private TextView avisoActualizacion;
+    private Actualizador actualizador;
+    private Actualizador.Oferta oferta;
+    private boolean buscandoVersion;
+    private boolean descargando;
 
     private int calidad;
     private int fluidez;
@@ -92,6 +103,14 @@ public class Principal extends Activity {
         bRetardo = opcion(opciones, v -> { retardo = (retardo + 1) % RETARDOS.length; guardar(); });
         bSonido = opcion(opciones, v -> { sonido = !sonido; guardar(); });
 
+        actualizador = new Actualizador(this, "itatagroup/pantalla-tv", "emisor-android", "EnviarAPantalla");
+        LinearLayout actualizaciones = (LinearLayout) findViewById(R.id.actualizaciones);
+        bBuscar = opcion(actualizaciones, v -> buscarActualizacion());
+        bActualizar = opcion(actualizaciones, v -> actualizar());
+        bActualizar.setVisibility(View.GONE);
+        avisoActualizacion = (TextView) findViewById(R.id.aviso_actualizacion);
+        avisoActualizacion.setText(getString(R.string.nota_actualizaciones, actualizador.versionNombre()));
+
         descubridor = new Descubridor(this);
         accion.requestFocus();
     }
@@ -115,6 +134,14 @@ public class Principal extends Activity {
 
     @Override
     protected void onStop() {
+        // Una búsqueda o descarga a medias se corta (también al abrir los ajustes del permiso de instalación).
+        actualizador.cancelar();
+        if (buscandoVersion || descargando) {
+            // Lo que estaba en curso ya no va a terminar: no dejar «Descargando… 40 %» a la vista al volver.
+            avisoActualizacion.setText(getString(R.string.nota_actualizaciones, actualizador.versionNombre()));
+        }
+        buscandoVersion = false;
+        descargando = false;
         reloj.removeCallbacks(refrescar);
         descubridor.detener();
         super.onStop();
@@ -162,6 +189,12 @@ public class Principal extends Activity {
         bRetardo.setText(getString(R.string.retardo, ms == 0 ? getString(R.string.retardo_ninguno) : (ms / 1000.0) + " s"));
         bSonido.setText(sonido ? R.string.sonido_si : R.string.sonido_no);
         for (Button b : new Button[] {bCalidad, bFluidez, bRetardo, bSonido}) b.setEnabled(!activo);
+        // Mientras transmite no se busca ni se instala nada.
+        bBuscar.setText(buscandoVersion ? R.string.buscando_actualizacion : R.string.buscar);
+        bBuscar.setEnabled(!activo && !buscandoVersion && !descargando);
+        bActualizar.setVisibility(oferta != null ? View.VISIBLE : View.GONE);
+        if (oferta != null) bActualizar.setText(getString(R.string.actualizar_a, oferta.version));
+        bActualizar.setEnabled(!activo && !descargando);
         ip.setEnabled(!activo);
 
         List<Descubridor.Tele> vistas = descubridor.vigentes();
@@ -245,5 +278,72 @@ public class Principal extends Activity {
         startForegroundService(servicio);
         pintar();
         accion.requestFocus();
+    }
+
+    // --- actualizaciones (solo cuando se pulsa «Buscar actualización»; ver docs/actualizaciones.md) ---
+
+    private void buscarActualizacion() {
+        if (ServicioEmision.activo || buscandoVersion || descargando) return;
+        buscandoVersion = true;
+        pintar();
+        actualizador.comprobar(MANIFIESTO, new Actualizador.AlComprobar() {
+            @Override
+            public void hayVersion(Actualizador.Oferta nueva) {
+                buscandoVersion = false;
+                oferta = nueva;
+                avisoActualizacion.setText(getString(R.string.hay_version, nueva.version, nueva.notas));
+                pintar();
+                bActualizar.requestFocus();
+            }
+
+            @Override
+            public void alDia() {
+                buscandoVersion = false;
+                oferta = null;
+                avisoActualizacion.setText(getString(R.string.al_dia, actualizador.versionNombre()));
+                pintar();
+            }
+
+            @Override
+            public void fallo() {
+                // El detalle queda en el registro («Actualizador» en logcat).
+                buscandoVersion = false;
+                avisoActualizacion.setText(R.string.no_se_pudo_comprobar);
+                pintar();
+            }
+        });
+    }
+
+    private void actualizar() {
+        if (oferta == null || descargando || ServicioEmision.activo) return;
+        if (!actualizador.puedeInstalar()) {
+            boolean abierto = Actualizador.abrirPermisoDeInstalacion(this);
+            avisoActualizacion.setText(abierto ? R.string.falta_permiso : R.string.sin_ajuste_permiso);
+            return;
+        }
+        descargando = true;
+        final Actualizador.Oferta pedida = oferta;
+        avisoActualizacion.setText(getString(R.string.descargando, pedida.version, 0));
+        pintar();
+        actualizador.descargarEInstalar(pedida, new Actualizador.AlDescargar() {
+            @Override
+            public void avance(int porcentaje) {
+                avisoActualizacion.setText(getString(R.string.descargando, pedida.version, porcentaje));
+            }
+
+            @Override
+            public void instalando() {
+                descargando = false;
+                avisoActualizacion.setText(R.string.confirmar_instalacion);
+                pintar();
+            }
+
+            @Override
+            public void fallo() {
+                descargando = false;
+                avisoActualizacion.setText(R.string.descarga_fallida);
+                pintar();
+            }
+        });
     }
 }

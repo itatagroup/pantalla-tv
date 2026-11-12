@@ -3,34 +3,24 @@ using System.Diagnostics;
 namespace PantallaTv.Emisor;
 
 /// <summary>
-/// Las actualizaciones, vistas desde la ventana y la bandeja: buscar (al abrir, con
-/// <see cref="EsperaInicial"/>, y cada <see cref="Intervalo"/>), avisar, descargar con avance y abrir el instalador.
-/// Reglas: apagado no hay ninguna conexión; mientras se transmite no se ofrece ni se instala nada (lo que aparezca
-/// espera a que termine); «Después» no vuelve a avisar de esa versión hasta el próximo inicio.
+/// Las actualizaciones, vistas desde la ventana y la bandeja: buscar (solo cuando el usuario pulsa «Buscar
+/// actualizaciones»: el programa nunca se conecta solo), ofrecer, descargar con avance y abrir el instalador.
+/// Reglas: mientras se transmite no se ofrece ni se instala nada (lo que aparezca espera a que termine); «Después»
+/// esconde esa versión hasta la próxima búsqueda.
 /// </summary>
 internal sealed partial class Mando
 {
-    /// <summary>Al abrir, se espera esto antes de buscar: no compite con el arranque (ni con el de Windows).</summary>
-    public static readonly TimeSpan EsperaInicial = TimeSpan.FromSeconds(20);
-    public static readonly TimeSpan Intervalo = TimeSpan.FromHours(24);
-
     private readonly ComprobadorActualizaciones? _comprobador;
     private readonly TimeProvider _reloj;
     /// <summary>Se cancela al salir: corta una búsqueda o una descarga en curso.</summary>
     private readonly CancellationTokenSource _cancelarActualizacion = new();
-    /// <summary>La de la descarga en curso: también se cancela al apagar la búsqueda.</summary>
     private CancellationTokenSource? _cancelarDescarga;
-    private ITimer? _temporizador;
-    private int _buscando; // 1 mientras hay una búsqueda en curso (la del temporizador corre en otro hilo)
+    private int _buscando; // 1 mientras hay una búsqueda en curso
 
     /// <summary>La última versión nueva válida que se encontró (aunque se haya pospuesto).</summary>
     private Novedad? _novedad;
-    /// <summary>La que se pospuso con «Después»: no se vuelve a avisar hasta el próximo inicio.</summary>
+    /// <summary>La que se pospuso con «Después»: no se vuelve a ofrecer hasta la próxima búsqueda.</summary>
     private Version? _pospuesta;
-    /// <summary>De qué versión ya salió el globo (una vez por versión en cada inicio).</summary>
-    private Version? _avisada;
-    /// <summary>Se encontró mientras se transmitía: el globo sale al terminar.</summary>
-    private bool _avisarAlTerminar;
     /// <summary>Se terminó de descargar mientras se transmitía: el instalador se abre al terminar.</summary>
     private (string Version, string Ruta)? _instalarAlTerminar;
 
@@ -49,46 +39,18 @@ internal sealed partial class Mando
     public Novedad? NovedadOfrecida =>
         _novedad is { } n && n.Version != _pospuesta && !Transmitiendo && AvanceDescarga is null && _instalarAlTerminar is null ? n : null;
 
-    /// <summary>«Buscar ahora» se puede si está activado y no hay una búsqueda o una descarga en curso.</summary>
-    public bool PuedeBuscarActualizaciones =>
-        _comprobador is not null && Ajustes.BuscarActualizaciones && !BuscandoActualizaciones && AvanceDescarga is null;
+    /// <summary>«Buscar actualizaciones» se puede si no hay una búsqueda o una descarga en curso.</summary>
+    public bool PuedeBuscarActualizaciones => _comprobador is not null && !BuscandoActualizaciones && AvanceDescarga is null;
 
-    /// <summary>La primera búsqueda a los <see cref="EsperaInicial"/> y después cada <see cref="Intervalo"/>.</summary>
-    public void IniciarActualizaciones()
+    /// <summary>Al abrir: borra el instalador de la actualización anterior (que ya no está en uso). No se conecta a nada.</summary>
+    public void IniciarActualizaciones() => _comprobador?.Limpiar();
+
+    public void BuscarActualizacionesAhora() => _ = ComprobarAsync();
+
+    /// <summary>Una búsqueda, pedida por el usuario: siempre dice el resultado y vuelve a ofrecer una versión pospuesta.</summary>
+    internal async Task ComprobarAsync()
     {
         if (_comprobador is null) return;
-        _comprobador.Limpiar(); // el instalador de la actualización anterior, que ya no está en uso
-        _temporizador = _reloj.CreateTimer(_ => _ = ComprobarAsync(manual: false), null, EsperaInicial, Intervalo);
-    }
-
-    /// <summary>
-    /// Activa o apaga la búsqueda. No es un ajuste de la emisión: se puede cambiar transmitiendo. Apagar corta una
-    /// descarga en curso y olvida lo encontrado (también un instalador que esperaba el fin de la transmisión).
-    /// </summary>
-    public void CambiarBuscarActualizaciones(bool activar)
-    {
-        Ajustes.BuscarActualizaciones = activar;
-        if (!activar)
-        {
-            _cancelarDescarga?.Cancel();
-            _novedad = null;
-            _instalarAlTerminar = null;
-            _avisarAlTerminar = false;
-            EstadoActualizaciones = null;
-        }
-        Guardar();
-    }
-
-    public void BuscarActualizacionesAhora() => _ = ComprobarAsync(manual: true);
-
-    /// <summary>
-    /// Una búsqueda. La automática no cuenta nada si falla (solo queda en el registro); la manual («Buscar ahora»)
-    /// siempre dice el resultado y vuelve a ofrecer una versión pospuesta.
-    /// </summary>
-    internal async Task ComprobarAsync(bool manual)
-    {
-        // Apagado = cero conexiones. Se mira aquí, en cada vuelta del temporizador.
-        if (_comprobador is null || !Ajustes.BuscarActualizaciones) return;
         if (Interlocked.Exchange(ref _buscando, 1) == 1) return;
         EnLaInterfaz(() => { BuscandoActualizaciones = true; Cambio?.Invoke(); });
         Revision r;
@@ -105,68 +67,60 @@ internal sealed partial class Mando
         {
             Volatile.Write(ref _buscando, 0);
         }
-        EnLaInterfaz(() => AlRevisar(r, manual));
+        EnLaInterfaz(() => AlRevisar(r));
     }
 
-    private void EnLaInterfaz(Action accion) => _ui.Post(_ => accion(), null);
+    /// <summary>
+    /// Pasa <paramref name="accion"/> al hilo de la interfaz. False si ya se está saliendo (no queda bucle de mensajes
+    /// que la corra): lo pendiente se descarta.
+    /// </summary>
+    private bool EnLaInterfaz(Action accion)
+    {
+        if (_cancelarActualizacion.IsCancellationRequested) return false;
+        try
+        {
+            _ui.Post(_ => accion(), null);
+            return true;
+        }
+        catch (Exception e) when (e is InvalidOperationException or ObjectDisposedException)
+        {
+            return false;
+        }
+    }
 
-    private void AlRevisar(Revision r, bool manual)
+    private void AlRevisar(Revision r)
     {
         BuscandoActualizaciones = false;
-        // Se apagó mientras se buscaba: lo encontrado no se ofrece.
-        if (!Ajustes.BuscarActualizaciones)
-        {
-            Cambio?.Invoke();
-            return;
-        }
         var hora = _reloj.GetLocalNow().ToString("dd-MM-yyyy HH:mm");
         if (r.Novedad is { } n)
         {
             _novedad = n;
-            if (manual) _pospuesta = null;
+            _pospuesta = null;
             EstadoActualizaciones = $"Hay una versión nueva: {n.Texto} (comprobado el {hora}).";
-            if (Transmitiendo)
-            {
-                _avisarAlTerminar = true;
-                if (manual) Aviso?.Invoke($"Hay una versión nueva ({n.Texto}): se ofrece al terminar de transmitir.", ToolTipIcon.Info);
-            }
-            else
-            {
-                if (manual) _avisada = null; // «Buscar ahora» siempre contesta
-                AvisarNovedad();
-            }
+            Aviso?.Invoke(Transmitiendo
+                ? $"Hay una versión nueva ({n.Texto}): se ofrece al terminar de transmitir."
+                : $"Hay una versión nueva ({n.Texto})" + (n.Notas.Length > 0 ? $": {n.Notas}" : ".") + " Ábrelo para actualizar.",
+                ToolTipIcon.Info);
         }
         else if (r.Rechazo == Rechazo.NoEsNueva)
         {
-            // Lo publicado ya no es más nuevo (se retiró un release): tampoco se instala lo que esperaba.
+            // Lo publicado ya no es más nuevo (se retiró una versión): tampoco se instala lo que esperaba.
             _novedad = null;
             _instalarAlTerminar = null;
             EstadoActualizaciones = $"Tienes la última versión (comprobado el {hora}).";
-            if (manual) Aviso?.Invoke($"Tienes la última versión ({Instalacion.Version}).", ToolTipIcon.Info);
+            Aviso?.Invoke($"Tienes la última versión ({Instalacion.Version}).", ToolTipIcon.Info);
         }
         else
         {
-            // Sin internet, una firma que no cuadra…: no se ofrece nada nuevo y queda en el registro. Una versión ya
-            // encontrada (y verificada) sigue ofreciéndose.
-            EstadoActualizaciones = $"No se pudo comprobar el {hora}; se vuelve a intentar mañana.";
-            if (manual) Aviso?.Invoke("No se pudo comprobar si hay una versión nueva. Vuelve a intentarlo más tarde.", ToolTipIcon.Info);
+            // Sin internet, una firma que no cuadra…: no se ofrece nada nuevo y el detalle queda en el registro. Una
+            // versión ya encontrada (y verificada) sigue ofreciéndose.
+            EstadoActualizaciones = $"No se pudo comprobar el {hora}.";
+            Aviso?.Invoke("No se pudo comprobar si hay una versión nueva. Vuelve a intentarlo más tarde.", ToolTipIcon.Info);
         }
         Cambio?.Invoke();
     }
 
-    /// <summary>
-    /// El globo, una vez por versión: las búsquedas diarias no lo repiten (la banda de la ventana sigue). No mira
-    /// <see cref="Transmitiendo"/>: lo deciden quienes lo llaman (al terminar, la tarea todavía no acabó del todo).
-    /// </summary>
-    private void AvisarNovedad()
-    {
-        if (_novedad is not { } n || n.Version == _pospuesta || n.Version == _avisada || AvanceDescarga is not null || _instalarAlTerminar is not null) return;
-        _avisada = n.Version;
-        Aviso?.Invoke($"Hay una versión nueva ({n.Texto})" + (n.Notas.Length > 0 ? $": {n.Notas}" : ".") +
-                      " Ábrelo para actualizar.", ToolTipIcon.Info);
-    }
-
-    /// <summary>«Después»: la banda y el menú dejan de ofrecer esta versión hasta el próximo inicio (o «Buscar ahora»).</summary>
+    /// <summary>«Después»: la banda y el menú dejan de ofrecer esta versión hasta la próxima búsqueda.</summary>
     public void PosponerActualizacion()
     {
         if (_novedad is { } n) _pospuesta = n.Version;
@@ -208,28 +162,29 @@ internal sealed partial class Mando
             ruta = null;
         }
         var hecho = new TaskCompletionSource();
-        EnLaInterfaz(() =>
+        var enviado = EnLaInterfaz(() =>
         {
             try { AlDescargar(n, ruta, cancelar.IsCancellationRequested); }
             finally { hecho.TrySetResult(); }
         });
+        if (!enviado) hecho.TrySetResult(); // saliendo: no se instala nada
         await hecho.Task.ConfigureAwait(false);
     }
 
     private void AlDescargar(Novedad n, string? ruta, bool cancelada)
     {
         AvanceDescarga = null;
-        if (cancelada || !Ajustes.BuscarActualizaciones)
+        if (cancelada)
         {
-            // Se apagó la búsqueda (o se está saliendo): no se instala nada.
+            // Se está saliendo: no se instala nada.
             if (ruta is not null) _comprobador?.Limpiar();
         }
         else if (ruta is null)
         {
             // No cuadró (tamaño, huella, red): no se instala nada. Ya quedó en el registro.
             _novedad = null;
-            EstadoActualizaciones = "La descarga no se pudo completar o verificar; se vuelve a intentar mañana.";
-            Aviso?.Invoke("No se pudo descargar la versión nueva. Se vuelve a intentar mañana.", ToolTipIcon.Info);
+            EstadoActualizaciones = "La descarga no se pudo completar o verificar. Vuelve a buscar más tarde.";
+            Aviso?.Invoke("No se pudo descargar la versión nueva. Vuelve a buscar más tarde.", ToolTipIcon.Info);
         }
         else if (Transmitiendo)
         {
@@ -261,17 +216,14 @@ internal sealed partial class Mando
         }
     }
 
-    /// <summary>Lo que esperaba a que terminara la transmisión: abrir el instalador o el globo de una versión nueva.</summary>
+    /// <summary>
+    /// Lo que esperaba a que terminara la transmisión: abrir el instalador ya descargado. No si la transmisión terminó
+    /// porque se está saliendo del programa (sería un instalador que aparece solo al cerrar).
+    /// </summary>
     private void AlTerminarTransmision()
     {
-        if (_instalarAlTerminar is { } pendiente)
-        {
-            Instalar(pendiente.Version, pendiente.Ruta);
-            return;
-        }
-        if (!_avisarAlTerminar) return;
-        _avisarAlTerminar = false;
-        AvisarNovedad();
+        if (_cancelarActualizacion.IsCancellationRequested) return;
+        if (_instalarAlTerminar is { } pendiente) Instalar(pendiente.Version, pendiente.Ruta);
     }
 
     /// <summary>
@@ -288,7 +240,6 @@ internal sealed partial class Mando
 
     private void LiberarActualizaciones()
     {
-        _temporizador?.Dispose();
         try { _cancelarActualizacion.Cancel(); } catch (ObjectDisposedException) { return; } // ya liberado
         _comprobador?.Dispose();
         _cancelarDescarga?.Dispose();

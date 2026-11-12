@@ -20,7 +20,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Font _negrita;
 
     /// <param name="mostrar">Abrir la ventana al empezar (no al iniciar con Windows).</param>
-    /// <param name="manifiesto">Otra dirección para el <c>version.json</c> (<c>--manifiesto-url</c>, para pruebas).</param>
+    /// <param name="manifiesto">Otra dirección para el manifiesto (<c>--manifiesto-url</c>, para pruebas).</param>
     public TrayApp(bool mostrar, Uri? manifiesto = null)
     {
         var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
@@ -150,8 +150,7 @@ internal sealed class TrayApp : ApplicationContext
         // «Abrir al iniciar Windows» solo se ofrece al programa instalado (en la ventana aparece bloqueado, con el porqué).
         if (m.PuedeIniciarConWindows)
             Alternable("Abrir al iniciar Windows", m.IniciaConWindows, m.CambiarInicioConWindows);
-        Alternable("Buscar actualizaciones (una vez al día, en GitHub)", m.Ajustes.BuscarActualizaciones, m.CambiarBuscarActualizaciones);
-        _menu.Items.Add(new ToolStripMenuItem(m.BuscandoActualizaciones ? "Buscando actualizaciones…" : "Buscar actualizaciones ahora", null,
+        _menu.Items.Add(new ToolStripMenuItem(m.BuscandoActualizaciones ? "Buscando actualizaciones…" : "Buscar actualizaciones", null,
             (_, _) => m.BuscarActualizacionesAhora()) { Enabled = m.PuedeBuscarActualizaciones });
 
         _menu.Items.Add(new ToolStripSeparator());

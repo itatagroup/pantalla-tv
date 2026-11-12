@@ -8,8 +8,10 @@
   <string name="retardo_boton">Retardo: %1$s</string>
   <string name="retardo_aviso">Retardo: %1$s</string>
   <!-- Actualizaciones -->
-  <string name="auto_si">Actualizaciones automáticas: Sí</string>
-  <string name="auto_no">Actualizaciones automáticas: No</string>
+  <string name="buscar">Buscar actualización</string>
+  <string name="buscando">Buscando…</string>
+  <string name="al_dia">Tienes la última versión (%1$s)</string>
+  <string name="no_se_pudo_comprobar">No se pudo comprobar si hay una versión nueva. Prueba más tarde.</string>
   <string name="actualizar">Actualizar</string>
   <string name="hay_version">Hay una versión nueva (%1$s): %2$s</string>
   <string name="hay_version_sin_notas">Hay una versión nueva (%1$s)</string>
@@ -18,5 +20,4 @@
   <string name="descarga_fallida">No se pudo descargar la actualización. Prueba más tarde.</string>
   <string name="falta_permiso">Para actualizar, permite «Instalar apps desconocidas» para Pantalla en los ajustes que se abren y vuelve a pulsar «Actualizar».</string>
   <string name="sin_ajuste_permiso">Para actualizar, permite «Instalar apps desconocidas» para Pantalla en los ajustes de Android.</string>
-  <string name="actualizacion_no_instalada">No se pudo instalar la actualización</string>
 </resources>

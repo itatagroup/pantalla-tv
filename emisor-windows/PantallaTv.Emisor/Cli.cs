@@ -13,10 +13,10 @@ namespace PantallaTv.Emisor;
 /// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
 /// PantallaTv.exe --monitor-virtual estado|conectar|desconectar
-/// PantallaTv.exe --manifiesto-url https://servidor/version.json
+/// PantallaTv.exe --manifiesto-url https://servidor/emisor-windows.json
 /// </code>
 /// <c>--manifiesto-url</c> (para probar las actualizaciones) abre el programa de bandeja normal, pero lee el
-/// <c>version.json</c> de esa dirección https (y la firma de la misma más <c>.sig</c>) en vez del último release de GitHub.
+/// manifiesto de esa dirección https (y la firma de la misma más <c>.sig</c>) en vez del publicado en GitHub.
 /// No abre ningún hueco: la firma con la clave del proyecto se exige igual, y la descarga tiene que seguir siendo de
 /// <c>https://github.com/itatagroup/pantalla-tv/releases/download/</c>. Si el programa ya estaba abierto no cambia nada
 /// (la segunda instancia solo le pide que muestre su ventana): ciérralo antes o usa <c>PANTALLATV_PERFIL</c>.

@@ -15,7 +15,8 @@ Ver y oír la pantalla de un PC o un teléfono en la tele, por la red local. Tre
   `PantallaTv.Emisor` (el programa y el instalador), `PantallaTv.Emisor.Tests` (xUnit),
   `PantallaTv.Captura.Prueba` (+ `.Tests`: herramienta de medición, no va en el instalador) y `controlador/`
   (Virtual-Display-Driver incluido, ver su `LEEME.md`).
-- `receptor-android/` y `emisor-android/` — apps Android en Java, **sin Gradle y sin dependencias**.
+- `receptor-android/` y `emisor-android/` — apps Android en Java, **sin Gradle y sin dependencias**. Lo que
+  comparten (la actualización propia) está en `android-comun/java/` y lo compila `herramientas/build-android.mjs`.
 - `herramientas/` — `empaquetar.ps1` (arma `dist/`), `publicar.ps1` y `firmar-manifiesto.mjs` (arman un release), `build-android.mjs` (build compartido de las dos apps),
   scripts de medición.
 - `docs/` — `protocolo.md` (el contrato entre emisor y receptor), `monitor-virtual.md`, `prueba-otro-pc.md`,
@@ -38,14 +39,15 @@ respaldo opcional (`IFuenteVideo`, en `FuenteVideo.cs`).
   `herramientas/build-android.mjs`. Necesitan una clave propia en `keystore/` (ver el README, «Compilar»).
 - Todo lo publicable: `powershell -File herramientas/empaquetar.ps1` → `dist/` (ignorado por git). Se niega a
   seguir si falta un archivo del controlador o su huella no coincide con `SHA256SUMS.txt`.
-- Un release: `powershell -File herramientas/publicar.ps1 -Version x.y.z` → `dist/publicar/vx.y.z/` (instalador,
-  APK del receptor, `version.json` firmado con `herramientas/firmar-manifiesto.mjs`, `SHA256SUMS.txt`, `notas.md`).
-  No publica nada: imprime el `gh release create` para que lo corra el mantenedor. Ver `docs/actualizaciones.md`.
+- Un release, **una app por vez** (cada una con su versión): `powershell -File herramientas/publicar.ps1 -App
+  emisor-windows|receptor-android|emisor-android -Version x.y.z` → `dist/publicar/<app>-vx.y.z/` (el archivo, su
+  manifiesto `<app>.json` firmado con `herramientas/firmar-manifiesto.mjs`, `SHA256SUMS.txt`, `notas.md`). No
+  publica nada: imprime los comandos de `gh` para que los corra el mantenedor. Ver `docs/actualizaciones.md`.
 
 ## Reglas
 
 1. **Sin telemetría ni conexiones nuevas a internet.** La única salida a internet es la búsqueda de
-   actualizaciones (opcional, se puede apagar; contrato en `docs/actualizaciones.md`). Lo demás, solo red local: UDP 5601 (descubrimiento) y TCP 5600
+   actualizaciones, y solo cuando el usuario pulsa «Buscar actualizaciones» (nada automático; contrato en `docs/actualizaciones.md`). Lo demás, solo red local: UDP 5601 (descubrimiento) y TCP 5600
    (transmisión). Nada de servicios de terceros ni cuentas.
 2. **Apps de Android sin dependencias** (nada de AndroidX): los APK deben seguir siendo diminutos.
 3. **Pruebas en verde** antes de dar algo por terminado, y pruebas para lo que se cambie.

@@ -25,4 +25,18 @@
   <string name="canal">Transmisión en curso</string>
   <string name="notificacion_titulo">Enviando la pantalla a la tele</string>
   <string name="nota_sonido">El sonido solo incluye las apps que permiten capturarlo (la mayoría de los vídeos y juegos; no las llamadas) y sigue sonando también en este equipo.</string>
+  <!-- Actualizaciones: solo cuando se pulsa «Buscar actualización» -->
+  <string name="actualizaciones">Actualizaciones</string>
+  <string name="nota_actualizaciones">Solo cuando lo pulsas: mira en GitHub si hay una versión publicada, sin enviar nada. Versión instalada: %1$s.</string>
+  <string name="buscar">Buscar actualización</string>
+  <string name="buscando_actualizacion">Buscando…</string>
+  <string name="al_dia">Tienes la última versión (%1$s).</string>
+  <string name="no_se_pudo_comprobar">No se pudo comprobar si hay una versión nueva. Prueba más tarde.</string>
+  <string name="hay_version">Hay una versión nueva (%1$s). %2$s</string>
+  <string name="actualizar_a">Actualizar a la %1$s</string>
+  <string name="descargando">Descargando la versión %1$s… %2$d %%</string>
+  <string name="confirmar_instalacion">Confirma la instalación en la pantalla de Android.</string>
+  <string name="descarga_fallida">No se pudo descargar la actualización. Prueba más tarde.</string>
+  <string name="falta_permiso">Para actualizar, permite «Instalar apps desconocidas» para esta app en los ajustes que se abren y vuelve a pulsar «Actualizar».</string>
+  <string name="sin_ajuste_permiso">Para actualizar, permite «Instalar apps desconocidas» para esta app en los ajustes de Android.</string>
 </resources>

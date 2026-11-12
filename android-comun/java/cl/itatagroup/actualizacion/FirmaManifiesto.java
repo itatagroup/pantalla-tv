@@ -1,5 +1,6 @@
-// Copia en launcher-tv/app/src/main/java/cl/itatagroup/launcher/FirmaManifiesto.java; un arreglo aquí va también allá.
-package cl.itatagroup.pantalla;
+// Común a las apps Android de este repo (receptor y emisor): build-android.mjs compila android-comun/java en las dos.
+// launcher-tv tiene una copia; un arreglo aquí va también allá.
+package cl.itatagroup.actualizacion;
 
 import java.security.KeyFactory;
 import java.security.PublicKey;

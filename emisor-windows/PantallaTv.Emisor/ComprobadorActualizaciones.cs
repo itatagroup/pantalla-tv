@@ -34,7 +34,8 @@ internal sealed record Revision(Novedad? Novedad, Rechazo Rechazo, string Detall
 
 /// <summary>
 /// Busca y descarga versiones nuevas del emisor según el contrato de <c>docs/actualizaciones.md</c>: un GET del
-/// <c>version.json</c> del último release de GitHub y su firma (ECDSA P-256), sin identificadores ni cookies.
+/// manifiesto propio del emisor (<c>emisor-windows.json</c>, en el release fijo «actualizaciones» de GitHub) y su firma
+/// (ECDSA P-256), sin identificadores ni cookies. Solo cuando el usuario lo pide.
 /// Solo ofrece algo si la firma es válida, el repo es el esperado, la versión es mayor que la propia y la descarga
 /// apunta a los releases del repo; la descarga se acepta solo con el tamaño y el SHA-256 exactos. Todo lo que pasa
 /// queda en <see cref="Registro"/>; nada se le muestra al usuario como error.
@@ -49,8 +50,11 @@ internal sealed partial class ComprobadorActualizaciones : IDisposable
     public const string ClavePublica =
         "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENdrCrDU1A0B87/zG/2dD80YPGfx8+gK2CclanFT9+8hPOlWFc9Q4zYXJqMEdQEd6bdsQ2eMgjqwhea0vcj95zA==";
 
-    /// <summary>GitHub redirige esta dirección al <c>version.json</c> del release más nuevo.</summary>
-    public static readonly Uri ManifiestoPorDefecto = new($"https://github.com/{Repo}/releases/latest/download/version.json");
+    /// <summary>
+    /// El manifiesto del emisor. Cada app del repo tiene el suyo en el release fijo «actualizaciones» (lo reemplaza
+    /// <c>herramientas/publicar.ps1</c>), así la versión del emisor no depende de la del receptor ni de la del emisor Android.
+    /// </summary>
+    public static readonly Uri ManifiestoPorDefecto = new($"https://github.com/{Repo}/releases/download/actualizaciones/{App}.json");
 
     public static string PrefijoDescargas => $"https://github.com/{Repo}/releases/download/";
 
@@ -74,7 +78,7 @@ internal sealed partial class ComprobadorActualizaciones : IDisposable
     /// <param name="handler">El que hace los pedidos (las pruebas ponen uno propio).</param>
     /// <param name="clavePublica">SubjectPublicKeyInfo DER de la clave que firma los manifiestos.</param>
     /// <param name="actual">La versión de este programa.</param>
-    /// <param name="manifiesto">Dónde está el <c>version.json</c>; su firma está en la misma dirección más <c>.sig</c>.</param>
+    /// <param name="manifiesto">Dónde está el manifiesto (<c>emisor-windows.json</c>); su firma está en la misma dirección más <c>.sig</c>.</param>
     /// <param name="carpeta">Dónde se descargan los instaladores.</param>
     /// <param name="prefijoDescargas">Solo para pruebas: las URL de descarga aceptadas. Por defecto, los releases del repo.</param>
     /// <param name="permitirHttpLocal">Solo para pruebas: aceptar <c>http</c> a la propia máquina (un servidor de prueba local).</param>

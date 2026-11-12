@@ -1,6 +1,7 @@
 // Compila, empaqueta y firma el APK sin Gradle: solo el SDK de Android y un JDK.
 // Uso: node herramientas/build-android.mjs <carpeta de la app>   (genera <carpeta>/out/<nombre>.apk)
 // Lo comparten receptor-android/ y emisor-android/ (cada uno lo llama desde su tools/build.mjs).
+// Las dos compilan también android-comun/java (la actualización propia, paquete cl.itatagroup.actualizacion).
 // version.json de la app: versionCode, versionName, nombre (del APK y del keystore), minSdk, targetSdk.
 //
 // Variables opcionales:
@@ -111,7 +112,12 @@ run(join(buildTools, exe("aapt2")), [
 ]);
 
 // 2. Java -> classes
-const javaFiles = [...filesWithExt(join(app, "java"), ".java"), ...filesWithExt(join(out, "gen"), ".java")];
+const comun = join(dirname(fileURLToPath(import.meta.url)), "..", "android-comun", "java");
+const javaFiles = [
+  ...filesWithExt(join(app, "java"), ".java"),
+  ...filesWithExt(comun, ".java"),
+  ...filesWithExt(join(out, "gen"), ".java"),
+];
 run(javac, ["--release", "8", "-Xlint:-options", "-classpath", androidJar, "-d", join(out, "classes"), ...javaFiles]);
 
 // 3. classes -> dex

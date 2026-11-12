@@ -1,5 +1,6 @@
-// Copia en launcher-tv/app/src/main/java/cl/itatagroup/launcher/Actualizador.java; un arreglo aquí va también allá.
-package cl.itatagroup.pantalla;
+// Común a las apps Android de este repo (receptor y emisor): build-android.mjs compila android-comun/java en las dos.
+// launcher-tv tiene una copia; un arreglo aquí va también allá.
+package cl.itatagroup.actualizacion;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
@@ -32,7 +34,7 @@ import org.json.JSONObject;
 
 /**
  * Busca, descarga e instala una versión nueva de esta misma app según el contrato común de actualización
- * (manifiesto {@code version.json} firmado en el release de GitHub). Reglas, en orden:
+ * (manifiesto {@code <app>.json} firmado, publicado en GitHub). Reglas, en orden:
  * solo HTTPS → firma válida → formato y repo → versionCode mayor → URL del release → tamaño y SHA-256 exactos →
  * instalación siempre visible, confirmada por Android.
  *
@@ -166,9 +168,37 @@ public final class Actualizador {
         return nuevo;
     }
 
-    /** Desde Android 8 cada app necesita el permiso «instalar apps desconocidas» para ofrecer una instalación. */
+    /**
+     * Desde Android 8 cada app necesita el permiso «instalar apps desconocidas»; antes era un único ajuste
+     * del equipo («Orígenes desconocidos», en Seguridad). Los dos se abren con {@link #abrirPermisoDeInstalacion}.
+     */
+    @SuppressWarnings("deprecation")
     public boolean puedeInstalar() {
-        return Build.VERSION.SDK_INT < 26 || contexto.getPackageManager().canRequestPackageInstalls();
+        if (Build.VERSION.SDK_INT >= 26) return contexto.getPackageManager().canRequestPackageInstalls();
+        return Settings.Secure.getInt(contexto.getContentResolver(), Settings.Secure.INSTALL_NON_MARKET_APPS, 0) == 1;
+    }
+
+    /**
+     * Regla 5 del contrato: la descarga tiene que ser de los releases del repo. Se mira la ruta ya analizada y se
+     * rechaza todo lo que GitHub podría normalizar hacia otro lado («..», «.», escapes con %, consulta o fragmento).
+     */
+    static boolean urlDelRelease(String url, String repo) {
+        if (url == null || !url.startsWith("https://github.com/" + repo + "/releases/download/")) return false;
+        try {
+            URI u = new URI(url);
+            String ruta = u.getRawPath();
+            if (!"https".equals(u.getScheme()) || !"github.com".equals(u.getHost()) || u.getPort() != -1
+                    || u.getRawQuery() != null || u.getRawFragment() != null || u.getRawUserInfo() != null
+                    || ruta == null || ruta.indexOf('%') >= 0 || ruta.indexOf('\\') >= 0) {
+                return false;
+            }
+            for (String parte : ruta.split("/", -1)) {
+                if (parte.equals(".") || parte.equals("..")) return false;
+            }
+            return ruta.startsWith("/" + repo + "/releases/download/");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** Abre el ajuste donde se da ese permiso a esta app (o el de seguridad, si el equipo no tiene el propio). */
@@ -219,9 +249,7 @@ public final class Actualizador {
         if (versionCode <= versionCodeInstalado()) return null;
 
         String url = entrada.getString("url");
-        if (!url.startsWith("https://github.com/" + repo + "/releases/download/")) {
-            throw new IOException("URL de descarga fuera del release: " + url);
-        }
+        if (!urlDelRelease(url, repo)) throw new IOException("URL de descarga fuera del release: " + url);
         long tamano = entrada.getLong("tamano");
         if (tamano <= 0 || tamano > MAX_APK) throw new IOException("tamaño fuera de rango: " + tamano);
         String sha256 = entrada.getString("sha256").toLowerCase(Locale.ROOT);

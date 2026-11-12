@@ -42,7 +42,7 @@
         android:orientation="horizontal">
       <Button android:id="@+id/boton_retardo" style="@style/Boton"/>
       <Button android:id="@+id/boton_actualizar" style="@style/Boton" android:text="@string/actualizar" android:visibility="gone"/>
-      <Button android:id="@+id/boton_auto" style="@style/Boton"/>
+      <Button android:id="@+id/boton_buscar" style="@style/Boton" android:text="@string/buscar"/>
     </LinearLayout>
   </LinearLayout>
 </FrameLayout>

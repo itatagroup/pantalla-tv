@@ -54,7 +54,7 @@ internal sealed partial class Mando : IDisposable
     /// <param name="tvs">Las TV que se ven en la red ahora (el <see cref="Descubridor"/>).</param>
     /// <param name="propio">Lo que se libera con el mando (el descubridor).</param>
     /// <param name="comprobador">El que busca versiones nuevas (null = no se busca: las pruebas que no lo usan).</param>
-    /// <param name="reloj">Para programar las búsquedas (las pruebas ponen uno propio).</param>
+    /// <param name="reloj">La hora de la última búsqueda (las pruebas ponen uno propio).</param>
     public Mando(Ajustes ajustes, SynchronizationContext ui, Func<IReadOnlyList<Receptor>> tvs, IDisposable? propio = null,
         ComprobadorActualizaciones? comprobador = null, TimeProvider? reloj = null)
     {
@@ -68,8 +68,8 @@ internal sealed partial class Mando : IDisposable
     }
 
     /// <summary>
-    /// El del programa de bandeja: con los ajustes guardados, escuchando los anuncios de las TV y buscando versiones
-    /// nuevas (si está activado). <paramref name="manifiesto"/> cambia de dónde se lee el <c>version.json</c> (pruebas).
+    /// El del programa de bandeja: con los ajustes guardados y escuchando los anuncios de las TV. Las versiones nuevas
+    /// se buscan solo cuando el usuario lo pide; <paramref name="manifiesto"/> cambia de dónde se lee el manifiesto (pruebas).
     /// </summary>
     public static Mando Crear(SynchronizationContext ui, out string? problemaRed, Uri? manifiesto = null)
     {
