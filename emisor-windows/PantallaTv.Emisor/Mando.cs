@@ -273,7 +273,11 @@ internal sealed partial class Mando : IDisposable
             catch (EmisionException e)
             {
                 // Los de la transmisión ya se mostraron con CambioDeEstado; este es de antes de empezar.
-                if (preparado is null) AlEstado(new EstadoEmision(Fase.Error, e.Message));
+                if (preparado is null)
+                {
+                    Registro.Error($"antes de transmitir (pantalla «{nombreMonitor ?? "principal"}»): {e.Message}");
+                    AlEstado(new EstadoEmision(Fase.Error, e.Message));
+                }
             }
             finally
             {

@@ -199,6 +199,7 @@ internal sealed class Emision : IEmision
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // Lo imprevisto también se le dice al usuario: quien llama solo espera EmisionException.
+            Registro.Error("error inesperado al transmitir", e);
             var msg = $"Error inesperado al transmitir: {e.Message}";
             Notificar(Fase.Error, msg);
             throw new EmisionException(msg);
@@ -485,5 +486,10 @@ internal sealed class Emision : IEmision
         }
     }
 
-    private void Notificar(Fase fase, string detalle) => CambioDeEstado?.Invoke(new EstadoEmision(fase, detalle));
+    private void Notificar(Fase fase, string detalle)
+    {
+        // Lo que el usuario ve como error queda también en el registro, para el diagnóstico.
+        if (fase == Fase.Error) Registro.Error("transmisión: " + detalle);
+        CambioDeEstado?.Invoke(new EstadoEmision(fase, detalle));
+    }
 }

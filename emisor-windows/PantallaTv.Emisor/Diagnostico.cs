@@ -9,7 +9,9 @@ namespace PantallaTv.Emisor;
 /// <c>PantallaTv.exe --diagnostico</c> (o «Diagnóstico para enviar…» en la bandeja): un informe de texto de lo que este PC
 /// tiene para transmitir, pensado para que alguien sin la TV a mano lo mande de vuelta. Gráficas y monitores, los
 /// codificadores H.264 por hardware, una prueba de 3 s de la captura propia en cada monitor (sin TV: lo codificado se
-/// descarta), ffmpeg si está, el sonido y las últimas líneas del <see cref="Registro"/>. No cambia nada en el sistema.
+/// descarta), una prueba del monitor virtual (lo conecta unos segundos, lo captura y lo vuelve a quitar), ffmpeg si
+/// está, el sonido, los errores registrados con su detalle y las últimas líneas del <see cref="Registro"/>. Lo único que
+/// cambia, y solo por unos segundos, es el monitor virtual: queda como estaba.
 /// </summary>
 internal static class Diagnostico
 {
@@ -74,6 +76,10 @@ internal static class Diagnostico
         foreach (var m in monitores) L(ProbarNativa(m));
         L();
 
+        L("== Monitor virtual (prueba)");
+        foreach (var linea in ProbarMonitorVirtual()) L(linea);
+        L();
+
         L("== ffmpeg (opcional: solo de respaldo)");
         var ffmpeg = Ffmpeg.Buscar(null);
         L(ffmpeg is null ? "no está instalado" : $"{ffmpeg} · {VersionFfmpeg(ffmpeg)}");
@@ -84,8 +90,14 @@ internal static class Diagnostico
         catch (Exception e) when (e is not OutOfMemoryException) { L($"sin dispositivo de sonido ({e.Message})"); }
         L();
 
+        L("== Errores registrados (los últimos 30, con su detalle)");
+        var errores = Registro.Errores();
+        if (errores.Count == 0) L("ninguno");
+        foreach (var error in errores) L(error);
+        L();
+
         L("== Registro (últimas líneas)");
-        foreach (var linea in Registro.Ultimas(40)) L(linea);
+        foreach (var linea in Registro.Ultimas(120)) L(linea);
 
         var carpeta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PantallaTv");
         Directory.CreateDirectory(carpeta);
@@ -99,6 +111,100 @@ internal static class Diagnostico
         Process.Start(new ProcessStartInfo("notepad.exe", $"\"{ruta}\"") { UseShellExecute = true });
 
     /// <summary>Corre la tubería nativa unos segundos sobre ese monitor y resume qué pasó.</summary>
+    /// <summary>
+    /// El monitor virtual de punta a punta, como al transmitir: el controlador, conectarlo, que Windows y la gráfica lo
+    /// muestren, capturarlo 3 s y quitarlo. Cada paso con su tiempo; si falla, en qué paso y por qué (el detalle también
+    /// queda en los errores del registro). Si ya estaba conectado, solo se captura y se deja como estaba.
+    /// </summary>
+    internal static IEnumerable<string> ProbarMonitorVirtual()
+    {
+        var lineas = new List<string>();
+        try
+        {
+            lineas.Add("controlador: " + DescribirControlador());
+            var virtualMonitor = MonitorVirtual.Detectar();
+            if (virtualMonitor is null)
+            {
+                lineas.Add("no hay monitor virtual (el controlador no está instalado o Windows no lo muestra): nada que probar");
+                return lineas;
+            }
+            lineas.Add($"salida de Windows: {virtualMonitor.Dispositivo}");
+            var reloj = Stopwatch.StartNew();
+            var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20));
+            lineas.Add($"conectar: {resultado} en {reloj.Elapsed.TotalSeconds:0.0} s"
+                       + (resultado == MonitorVirtual.Resultado.Fallo ? " — NO SE PUDO (el motivo está en «Errores registrados»)" : ""));
+            if (resultado == MonitorVirtual.Resultado.Fallo) return lineas;
+            try
+            {
+                var monitor = Monitores.Listar().FirstOrDefault(m => string.Equals(m.Nombre, virtualMonitor.Dispositivo, StringComparison.OrdinalIgnoreCase));
+                if (monitor is null)
+                {
+                    lineas.Add("Windows lo conectó, pero no aparece en la lista de pantallas que se pueden capturar");
+                    Registro.Error($"diagnóstico: el monitor virtual {virtualMonitor.Dispositivo} se conectó pero no aparece en la lista de pantallas");
+                    return lineas;
+                }
+                lineas.Add($"aparece como {monitor.Nombre} {monitor.Ancho}×{monitor.Alto} · adaptador {monitor.Adaptador} ({monitor.NombreAdaptador}), salida {monitor.Salida}");
+                lineas.Add("captura: " + ProbarNativa(monitor));
+            }
+            finally
+            {
+                if (resultado == MonitorVirtual.Resultado.Conectado)
+                    lineas.Add(virtualMonitor.Liberar() ? "quitado del escritorio otra vez" : "NO se pudo quitar: se reintenta al abrir el programa");
+                else
+                    lineas.Add("ya estaba conectado: se deja así");
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Registro.Error("diagnóstico: la prueba del monitor virtual falló", e);
+            lineas.Add($"la prueba falló: {e.Message}");
+        }
+        return lineas;
+    }
+
+    private static Encoding CodificacionAnsi()
+    {
+        try
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.ANSICodePage);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException)
+        {
+            return Encoding.UTF8;
+        }
+    }
+
+    /// <summary>Lo que dice Windows del controlador del monitor virtual (pnputil, sin administrador).</summary>
+    private static string DescribirControlador()
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("pnputil.exe", "/enum-devices /class Display")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                // Redirigido, pnputil escribe en la página de códigos ANSI (1252 en Windows en español), no en UTF-8.
+                StandardOutputEncoding = CodificacionAnsi(),
+            })!;
+            var salida = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(10_000);
+            // pnputil separa cada dispositivo con una línea en blanco; interesa el bloque del controlador.
+            var bloque = salida.Replace("\r\n", "\n").Split("\n\n")
+                .FirstOrDefault(b => b.Contains("Virtual Display Driver", StringComparison.OrdinalIgnoreCase)
+                                     || b.Contains(MonitorVirtual.IdControlador, StringComparison.OrdinalIgnoreCase));
+            return bloque is null
+                ? "pnputil no lo lista entre las pantallas"
+                : string.Join(" · ", bloque.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Skip(1).Select(l => System.Text.RegularExpressions.Regex.Replace(l, @":\s+", ": ")));
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return $"no se pudo consultar ({e.Message})";
+        }
+    }
+
     private static string ProbarNativa(Monitor m)
     {
         var reloj = Stopwatch.StartNew();

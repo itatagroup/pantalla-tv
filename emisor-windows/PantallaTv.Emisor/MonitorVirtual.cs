@@ -71,7 +71,14 @@ internal sealed class MonitorVirtual
             modos.Add((m.PelsWidth, m.PelsHeight, m.DisplayFrequency));
         }
         var elegido = ElegirModo(modos);
-        if (elegido is null) return Resultado.Fallo;
+        Registro.Anotar($"monitor virtual {Dispositivo}: modos que ofrece el controlador: "
+                        + (modos.Count == 0 ? "ninguno" : string.Join(", ", modos.Distinct().Select(m => $"{m.Ancho}×{m.Alto}@{m.Hz}")))
+                        + (elegido is { } e ? $"; elegido {e.Ancho}×{e.Alto}@{e.Hz}" : ""));
+        if (elegido is null)
+        {
+            Registro.Error($"monitor virtual {Dispositivo}: el controlador no ofrece ningún modo de 1080p o 720p");
+            return Resultado.Fallo;
+        }
         var modo = todos.First(m => m.PelsWidth == elegido.Value.Ancho && m.PelsHeight == elegido.Value.Alto && m.DisplayFrequency == elegido.Value.Hz);
 
         var otras = Monitores.Pantallas().Where(p => !EsEste(p.Nombre)).Select(p => p.Limites);
@@ -81,9 +88,15 @@ internal sealed class MonitorVirtual
         modo.Fields = CampoPosicion | CampoBits | CampoAncho | CampoAlto | CampoFrecuencia;
 
         EscribirMarca();
-        if (ChangeDisplaySettingsEx(Dispositivo, ref modo, IntPtr.Zero, ActualizarRegistro | SinReiniciar, IntPtr.Zero) != 0
-            || AplicarCambios() != 0)
+        var cambio = ChangeDisplaySettingsEx(Dispositivo, ref modo, IntPtr.Zero, ActualizarRegistro | SinReiniciar, IntPtr.Zero);
+        var aplicar = cambio == 0 ? AplicarCambios() : 0;
+        if (cambio != 0 || aplicar != 0)
+        {
+            // Los códigos son los DISP_CHANGE_* de Windows (-1 falló, -2 modo no soportado, -6 el controlador no
+            // pudo, 1 hace falta reiniciar…).
+            Registro.Error($"monitor virtual {Dispositivo}: Windows no aceptó el cambio de pantalla (ChangeDisplaySettingsEx {cambio}, aplicar {aplicar})");
             return Abandonar();
+        }
 
         var limite = DateTime.UtcNow + espera;
         while (DateTime.UtcNow < limite)
@@ -95,6 +108,10 @@ internal sealed class MonitorVirtual
                 return Resultado.Conectado;
             Thread.Sleep(250);
         }
+        // Qué faltó: conectarse al escritorio, aparecer como pantalla o aparecer en la gráfica (DXGI). Lo último pasa
+        // si el monitor quedó en una gráfica que la captura no ve (por ejemplo, en notebooks con dos gráficas).
+        Registro.Error($"monitor virtual {Dispositivo}: no apareció en {espera.TotalSeconds:0} s (en el escritorio: {EstaConectado()}, "
+                       + $"como pantalla: {Monitores.Pantallas().Any(p => EsEste(p.Nombre))}, en DXGI: {Dxgi.Salidas().Any(s => EsEste(s.Dispositivo))})");
         return Abandonar();
     }
 
