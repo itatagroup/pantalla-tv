@@ -132,6 +132,16 @@ configuración de la 0.10 o anterior la lista solo trae dos modos: «Reinstalar�
 - **Sonido por aplicación** (WASAPI por proceso, Windows 10 2004+): sin hacer.
 - **El cursor del ratón** sale en la imagen cuando está sobre el monitor transmitido.
 - Probar con un monitor de otro adaptador.
+- **Portátil con dos gráficas (diagnóstico de César, 13/11/2026)**:
+  - En «Duplicar», Windows rechaza conectar el monitor virtual (`ChangeDisplaySettingsEx -1`). Arreglo:
+    pasar sola a «Extender» (la API de Win+P) antes de conectar, y explicar que para ver el mismo monitor
+    hay que desmarcar el monitor virtual.
+  - El virtual quedó en la NVIDIA a 3840×2160 y ningún codificador lo aceptó (AMD: E_FAIL; NVIDIA MFT:
+    E_UNEXPECTED). Arreglo: dejarlo en la resolución pedida, probar primero el codificador de la gráfica
+    dueña de esa salida abierto sobre esa misma gráfica y, si falla, copiar la imagen a la otra gráfica.
+    Sin el virtual, la nativa por la AMD funciona.
+  - ffmpeg de respaldo: ofrecer **descargarlo automáticamente desde el emisor** (con verificación) en
+    vez de pedir que la persona lo copie junto a `PantallaTv.exe` (Diego, 14/11).
 - El contenido con DRM se captura en negro, igual que en el monitor real.
 
 ## Velocidad y búfer
