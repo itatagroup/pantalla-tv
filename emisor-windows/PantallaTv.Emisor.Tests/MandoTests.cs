@@ -117,7 +117,7 @@ public sealed class MandoTests : IDisposable
 
         Assert.False(mando.IniciarConIp("10.0.0"));
 
-        Assert.Equal("Esa no es una dirección IP válida.", aviso);
+        Assert.Equal("Esa no es una dirección IP válida: escribe cuatro números separados por puntos (por ejemplo 10.0.0.20).", aviso);
         Assert.False(mando.Transmitiendo);
         Assert.Null(mando.Ajustes.UltimaIp);
     }

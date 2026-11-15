@@ -149,10 +149,13 @@ ninguna se pudo probar de punta a punta sin un portátil así** (ver «Qué no s
 1. **«Duplicar» bloquea el monitor virtual** (`ChangeDisplaySettingsEx` daba -1). Antes de conectarlo,
    `Topologia.Actual()` consulta la topología con `QueryDisplayConfig` (`QDC_DATABASE_CURRENT`); si es «Duplicar», pasa a
    «Extender» con `SetDisplayConfig(SDC_TOPOLOGY_EXTEND | SDC_APPLY)`, la misma API de Win+P. Al soltar el monitor vuelve a
-   «Duplicar» (solo si sigue en «Extender»: si la persona la cambió entretanto, se respeta). La marca en disco
+   «Duplicar» solo si al terminar sigue habiendo otra pantalla en «Extender» (si la persona la cambió entretanto, o si
+   solo queda la pantalla del PC, Windows dice «solo la pantalla del PC» y no se toca: queda «Extender» guardado para el
+   monitor virtual y no hace falta cambiarlo otra vez). La marca en disco
    (`monitor-virtual-conectado.marca`) lleva una segunda línea `duplicar`, así que si el programa muere a medias, el
-   siguiente arranque también vuelve a «Duplicar». La persona ve un aviso (globo y registro): se pasó a «Extender» y, para
-   ver en la tele el mismo monitor que en el PC, hay que desmarcar el monitor virtual. Si `SetDisplayConfig` falla, el error
+   siguiente arranque aplica la misma regla. La persona ve un globo corto (se pasó a «Extender»; para ver en la tele el
+   mismo monitor que en el PC, hay que desmarcar el monitor virtual); la regla de cuándo se vuelve a «Duplicar» queda en el
+   registro. Si `SetDisplayConfig` falla, el error
    dice en palabras que hay que hacerlo con Win+P → Extender (no un código suelto) y no se transmite. El diagnóstico anota
    la topología y el aviso.
 2. **El virtual quedó en 3840×2160 y ningún codificador lo aceptó.**
@@ -205,7 +208,7 @@ lógica (la consulta de la topología es solo lectura; **no se cambió** la topo
 conectado como lógica, la copia de un cuadro NV12 entre dos dispositivos D3D11 de la misma gráfica (bytes idénticos), la
 tubería nativa de punta a punta con el plan, y la descarga contra un servidor falso. **Falta, en el portátil de dos gráficas:**
 
-- Que «Duplicar» → «Extender» → monitor virtual → transmitir → soltar → «Duplicar» ocurra de verdad (y que la consulta
+- Que «Duplicar» → «Extender» → monitor virtual → transmitir → soltar (→ «Duplicar» si queda otra pantalla en «Extender») ocurra de verdad (y que la consulta
   `QDC_DATABASE_CURRENT` devuelva «Duplicar» allí; si devolviera otra cosa, no se cambiaría nada y el error de antes seguiría).
 - Que Windows no deje el monitor virtual conectado en un modo distinto del pedido.
 - Que el codificador de la NVIDIA acepte el cuadro (intento 1) o, si no, que la copia a la otra gráfica funcione (intento 2).

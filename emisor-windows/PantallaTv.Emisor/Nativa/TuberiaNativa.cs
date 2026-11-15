@@ -121,6 +121,10 @@ internal sealed class TuberiaNativa : IFuenteVideo
     /// <summary>El codificador elegido y si retiene un cuadro (lo que se ve en el registro y en <c>--diagnostico</c>).</summary>
     public string? Detalle => _detalle is { } d ? d + (_retencion is { } r ? " · " + r : "") : null;
 
+    /// <summary>Se codifica en otra gráfica que la que dibuja el monitor: cada cuadro se copia por la CPU (más CPU).</summary>
+    public bool CopiaEntreGpus { get => Volatile.Read(ref _copiaEntreGpus); private set => Volatile.Write(ref _copiaEntreGpus, value); }
+    private bool _copiaEntreGpus; // se escribe en el hilo de la captura y se lee en el de las estadísticas
+
     /// <summary>Se completa al encontrar el monitor (ver <see cref="IFuenteVideo.Lista"/>).</summary>
     public Task Lista => _lista.Task;
 
@@ -168,21 +172,36 @@ internal sealed class TuberiaNativa : IFuenteVideo
             {
                 // Antes del primer cuadro no se insiste: lo más probable es que este PC no pueda (sin codificador
                 // por hardware, DXGI sin duplicación). Que pruebe la tubería siguiente.
-                if (Unidades == 0) throw new NativaNoDisponibleException(Explicar(e), e);
+                if (Unidades == 0) throw new NativaNoDisponibleException(Motivo(e), e);
                 var ahora = DateTime.UtcNow;
                 while (reconstrucciones.Count > 0 && ahora - reconstrucciones.Peek() > VentanaReconstrucciones) reconstrucciones.Dequeue();
                 reconstrucciones.Enqueue(ahora);
                 if (reconstrucciones.Count > ReconstruccionesMax)
-                    throw new NativaNoDisponibleException($"falló {reconstrucciones.Count} veces en {VentanaReconstrucciones.TotalSeconds:0} s: {Explicar(e)}", e);
+                    throw new NativaNoDisponibleException($"falló {reconstrucciones.Count} veces en {VentanaReconstrucciones.TotalSeconds:0} s: {Motivo(e)}", e);
                 lock (_cerrojoStats) _reinicios++;
-                Registro.Anotar($"nativa: se rehace todo tras «{Explicar(e)}»");
+                Registro.Anotar($"nativa: se rehace todo tras «{Motivo(e)}»");
                 ct.WaitHandle.WaitOne(300);
             }
         }
     }
 
-    internal static string Explicar(Exception e) =>
-        e is SharpGenException s ? $"{s.Message.Trim()} (0x{s.HResult:X8})" : e.Message;
+    /// <param name="preferencia">La preferencia de gráfica de Windows para este programa («Alto rendimiento»…); null = ninguna.</param>
+    internal static string Explicar(Exception e, string? preferencia = null) =>
+        e is SharpGenException s
+            ? s.HResult == NoSoportado && preferencia is not null
+                ? $"{s.Message.Trim()} (0x{s.HResult:X8}): {TextoPreferenciaDeGrafica(preferencia)}"
+                : $"{s.Message.Trim()} (0x{s.HResult:X8})"
+            : e.Message;
+
+    /// <summary>Lo que hay que decirle a la persona cuando Windows tiene a Pantalla TV asignado a una gráfica (la captura propia no puede leer las pantallas de la otra).</summary>
+    internal static string TextoPreferenciaDeGrafica(string preferencia) =>
+        $"Windows tiene a Pantalla TV en «{preferencia}» (Configuración › Sistema › Pantalla › Gráficos): "
+        + "la captura propia no puede leer las pantallas de la otra gráfica y se usa el respaldo, más lento. "
+        + "Quítala: déjalo en «Dejar que Windows decida».";
+
+    /// <summary>Como <see cref="Explicar(Exception, string?)"/>, con la preferencia de gráfica que Windows tenga ahora para este programa.</summary>
+    private static string Motivo(Exception e) =>
+        Explicar(e, e is SharpGenException { HResult: NoSoportado } ? Controlador.PreferenciaDeGrafica(Environment.ProcessPath) : null);
 
     /// <summary>Un dispositivo, un codificador y las duplicaciones que hagan falta. Sale por excepción o al cancelar.</summary>
     private void Sesion(CancellationToken ct)
@@ -205,6 +224,7 @@ internal sealed class TuberiaNativa : IFuenteVideo
         using var codificador = FabricaCodificador.Crear(adaptador, dev, ctx, _op.Ancho, _op.Alto, _op.Fps, _op.Kbps,
             (unidad, tiempo) => AlSalir(parametros, enVuelo, unidad, tiempo));
         _claveAPedido = codificador.ClaveAPedido;
+        CopiaEntreGpus = codificador is CodificadorConCopia;
         if (_detalle != codificador.Descripcion)
         {
             _detalle = codificador.Descripcion;
@@ -355,7 +375,7 @@ internal sealed class TuberiaNativa : IFuenteVideo
         }
         sinMonitorDesde ??= DateTime.UtcNow;
         if (DateTime.UtcNow - sinMonitorDesde > PlazoMonitor)
-            throw new EmisionException($"El monitor {_op.Dispositivo ?? "elegido"} ya no está conectado.", reintentable: true);
+            throw new EmisionException($"El monitor {_op.Dispositivo ?? "elegido"} ya no está conectado: vuelve a conectarlo o elige otra pantalla.", reintentable: true);
         return null;
     }
 

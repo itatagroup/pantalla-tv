@@ -327,7 +327,7 @@ internal sealed partial class Mando : IDisposable
     {
         if (LeerIp(texto) is not { } dir)
         {
-            Aviso?.Invoke("Esa no es una dirección IP válida.", ToolTipIcon.Warning);
+            Aviso?.Invoke("Esa no es una dirección IP válida: escribe cuatro números separados por puntos (por ejemplo 10.0.0.20).", ToolTipIcon.Warning);
             return false;
         }
         Iniciar(new Receptor("TV", dir, Protocolo.PuertoTcp));
@@ -382,6 +382,15 @@ internal sealed partial class Mando : IDisposable
             Monitores.Preparado? preparado = null;
             try
             {
+                // Con una preferencia de gráfica de Windows para este programa la captura propia no puede leer las pantallas de
+                // la otra gráfica: se dice ahora y con el arreglo, no solo cuando falle (solo importa si se puede usar la nativa).
+                if (a.Tuberia is null or Tuberias.Nativa
+                    && Controlador.PreferenciaDeGrafica(Environment.ProcessPath) is { } preferencia // lo normal: ninguna, y no se enumera nada
+                    && AvisoPreferenciaDeGrafica(preferencia, Controlador.NombresDeHardware(Controlador.GraficasDelPc()).Count) is { } avisoPreferencia)
+                {
+                    Registro.Anotar("gráfica: " + avisoPreferencia);
+                    EnLaInterfaz(() => Aviso?.Invoke(avisoPreferencia, ToolTipIcon.Warning));
+                }
                 // Dentro de la tarea: conectar el monitor virtual tarda unos segundos y no debe congelar la interfaz.
                 preparado = Monitores.Preparar(nombreMonitor, m => AlEstado(new EstadoEmision(Fase.Conectando, m)), modoVirtual);
                 if (preparado.Aviso is { } avisoPantallas)
@@ -594,8 +603,37 @@ internal sealed partial class Mando : IDisposable
 
     public static string TextoMbps(Estadisticas? e) => e is null ? "—" : e.Mbps.ToString("0.0", Es);
 
+    /// <summary>La captura con copia entre gráficas gasta más CPU: se le dice a la persona.</summary>
+    public const string TextoCopiaEntreGraficas = "Captura propia · copia entre gráficas (más CPU)";
+
     public static string TextoForma(Estadisticas? e) =>
-        e is { Tuberia.Length: > 0 } ? Tuberias.Descripcion(e.Tuberia) : "—";
+        e is { Tuberia.Length: > 0 } ? e.CopiaEntreGpus ? TextoCopiaEntreGraficas : Tuberias.Descripcion(e.Tuberia) : "—";
+
+    /// <summary>
+    /// El aviso al empezar si Windows tiene a Pantalla TV asignado a una gráfica (<paramref name="preferencia"/>: «Alto rendimiento»,
+    /// «Ahorro de energía»); null si no hay ninguna. Cabe en un globo (255 caracteres).
+    /// </summary>
+    /// <param name="graficas">Cuántas gráficas de hardware distintas hay: con una sola la preferencia no molesta y no se avisa.</param>
+    internal static string? AvisoPreferenciaDeGrafica(string? preferencia, int graficas) =>
+        preferencia is null || graficas < 2 ? null
+            // Antes de transmitir no se sabe si molestará (depende de qué gráfica dibuja cada pantalla): se dice como posibilidad.
+            : $"Windows tiene a Pantalla TV en «{preferencia}» (Configuración › Sistema › Pantalla › Gráficos): con dos gráficas "
+              + "puede impedir la captura propia y obligar al respaldo, más lento. Si pasa, déjalo en «Dejar que Windows decida».";
+
+    /// <summary>Lo que cabe en un globo de Windows (corta en ~255 caracteres).</summary>
+    internal const int LargoGlobo = 255;
+
+    /// <summary>
+    /// El texto para un globo: si no cabe, se corta en una palabra y se avisa que el detalle está en la ventana (y en el
+    /// registro), en vez de que Windows lo corte a ciegas justo donde suele estar el arreglo.
+    /// </summary>
+    public static string ParaGlobo(string texto)
+    {
+        if (texto.Length <= LargoGlobo) return texto;
+        const string resto = "… (detalle en la ventana)";
+        var corte = texto.LastIndexOf(' ', LargoGlobo - resto.Length);
+        return texto[..(corte > 0 ? corte : LargoGlobo - resto.Length)].TrimEnd(' ', ',', ';', ':', '.') + resto;
+    }
 
     public void Dispose()
     {

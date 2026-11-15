@@ -72,6 +72,7 @@ internal sealed class CodificadorMf : ICodificador
         _duracion = 10_000_000L / fps;
         // Se prueban las MFT de hardware (NV12 → H.264) en orden hasta que una acepte el dispositivo y los ajustes.
         var descartadas = new List<string>();
+        bool? variasGraficas = null; // se mira solo si alguna MFT se niega
         string? nombre = null;
         try
         {
@@ -87,7 +88,7 @@ internal sealed class CodificadorMf : ICodificador
                     }
                     catch (Exception e) when (e is SharpGenException or COMException or InvalidOperationException or InvalidCastException)
                     {
-                        descartadas.Add($"{nombreMft}: en {_paso}: {(e is SharpGenException s ? $"{s.Message.Trim()} (0x{s.HResult:X8})" : e.Message)}");
+                        descartadas.Add($"{nombreMft}: en {_paso}: {ExplicarDescarte(nombreMft, _paso, e, variasGraficas ??= HayVariasGraficas())}");
                         Soltar();
                         try { activar.ShutdownObject(); } catch (SharpGenException) { }
                     }
@@ -115,6 +116,53 @@ internal sealed class CodificadorMf : ICodificador
             + (ClaveAPedido ? "" : $" · sin clave a pedido (una cada {SegundosClaveSinPedido} s)")
             + (_avisos.Count > 0 ? $" · rechazó: {string.Join(", ", _avisos)}" : "")
             + (descartadas.Count > 0 ? $" · descartadas antes: {string.Join(" · ", descartadas)}" : "");
+    }
+
+    private const int Inesperado = unchecked((int)0x8000FFFF); // E_UNEXPECTED
+    private const int SinMemoria = unchecked((int)0x8007000E); // E_OUTOFMEMORY
+
+    /// <summary>¿Hay más de una gráfica de hardware (por nombre)? Es cuando una MFT puede negarse por la gráfica asignada al proceso.</summary>
+    private static bool HayVariasGraficas()
+    {
+        try { return Controlador.NombresDeHardware(Gpu.Adaptadores()).Count >= 2; }
+        catch (Exception e) when (e is SharpGenException or OverflowException) { return false; }
+    }
+
+    /// <summary>El fabricante de una MFT por el «[VEN_10DE]» que se le agrega al nombre o, si no, por una marca en el nombre; null si no se sabe.</summary>
+    internal static uint? VendedorDeMft(string nombreMft)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(nombreMft, @"VEN_([0-9A-Fa-f]{4})");
+        if (m.Success) return Convert.ToUInt32(m.Groups[1].Value, 16);
+        if (nombreMft.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase)) return 0x10DE;
+        if (nombreMft.Contains("AMD", StringComparison.OrdinalIgnoreCase)) return 0x1002;
+        if (nombreMft.Contains("Intel", StringComparison.OrdinalIgnoreCase)) return 0x8086;
+        return null;
+    }
+
+    internal static string Marca(uint vendedor) => vendedor switch
+    {
+        0x10DE => "NVIDIA",
+        0x1002 or 0x1022 => "AMD",
+        0x8086 => "Intel",
+        _ => $"VEN_{vendedor:X4}",
+    };
+
+    /// <summary>
+    /// Por qué se descartó una MFT, en palabras cuando se conoce la causa. Con dos gráficas, una MFT que no se deja crear
+    /// (<c>ActivateObject</c>) es porque Windows asigna el proceso a la otra gráfica, sea cual sea el dispositivo (medido el 15/11/2026
+    /// en un portátil AMD + NVIDIA: la de NVIDIA da <c>E_UNEXPECTED</c> aun con un dispositivo de la NVIDIA, y con el programa en
+    /// «Alto rendimiento» la de AMD da <c>E_OUTOFMEMORY</c>).
+    /// </summary>
+    internal static string ExplicarDescarte(string nombreMft, string paso, Exception e, bool variasGraficas)
+    {
+        if (e is not SharpGenException s) return e.Message;
+        var crudo = $"{s.Message.Trim()} (0x{s.HResult:X8})";
+        if (variasGraficas && paso == "ActivateObject" && s.HResult is Inesperado or SinMemoria)
+        {
+            var marca = VendedorDeMft(nombreMft) is { } v ? Marca(v) : "esa gráfica";
+            return $"la MFT de {marca} no se deja crear en este proceso (normal en portátiles con dos gráficas: Windows asigna el programa a la otra) · {crudo}";
+        }
+        return crudo;
     }
 
     /// <summary>

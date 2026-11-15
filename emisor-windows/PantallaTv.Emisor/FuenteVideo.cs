@@ -32,6 +32,9 @@ internal interface IFuenteVideo : IDisposable
     /// <param name="enviar">Cada unidad de acceso (Annex B), apenas sale. Puede llamarse desde otro hilo.</param>
     Task EjecutarAsync(Action<byte[]> enviar, CancellationToken ct);
 
+    /// <summary>Se codifica en otra gráfica que la que dibuja el monitor y cada cuadro se copia por la CPU (solo la nativa); se le muestra a la persona.</summary>
+    bool CopiaEntreGpus => false;
+
     /// <summary>La TV pidió un fotograma clave (o se llenó la cola). Una fuente que no puede darlo al momento lo ignora.</summary>
     void PedirClave();
 
@@ -113,11 +116,11 @@ internal sealed class FuenteFfmpeg(string nombre, string ruta, OpcionesEmision o
         foreach (var a in argumentos) psi.ArgumentList.Add(a);
         try
         {
-            return Process.Start(psi) ?? throw new EmisionException("No se pudo iniciar ffmpeg.");
+            return Process.Start(psi) ?? throw new EmisionException("No se pudo iniciar ffmpeg. Vuelve a descargarlo en «Avanzado» o elige otra forma de capturar.");
         }
         catch (System.ComponentModel.Win32Exception e)
         {
-            throw new EmisionException($"No se pudo ejecutar ffmpeg ({ruta}): {e.Message}");
+            throw new EmisionException($"No se pudo ejecutar ffmpeg ({ruta}): {e.Message.TrimEnd('.')}. Vuelve a descargarlo en «Avanzado» o elige otra forma de capturar.");
         }
     }
 
@@ -160,7 +163,7 @@ internal static class Ffmpeg
     public static string? Buscar(string? ruta)
     {
         if (!string.IsNullOrWhiteSpace(ruta))
-            return File.Exists(ruta) ? ruta : throw new EmisionException($"No existe ffmpeg en {ruta}.");
+            return File.Exists(ruta) ? ruta : throw new EmisionException($"No existe ffmpeg en {ruta}. Corrige la ruta, o quítala para que se busque junto al programa o se descargue en «Avanzado».");
 
         var junto = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
         if (File.Exists(junto)) return junto;

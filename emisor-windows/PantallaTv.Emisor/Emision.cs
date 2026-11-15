@@ -15,8 +15,9 @@ internal sealed class TerminadaPorElReceptor() : Exception(Emision.TextoTerminad
 /// <param name="AudioPaqS">Paquetes de audio por segundo (50 cuando suena algo; 0 en silencio o sin audio).</param>
 /// <param name="Nativa">Con la tubería nativa: lo que pasó dentro de la captura y el codificador.</param>
 /// <param name="Tuberia">La forma de capturar que produjo estos números (una de <see cref="Tuberias.Todas"/>).</param>
+/// <param name="CopiaEntreGpus">La nativa codifica en otra gráfica y copia cada cuadro por la CPU (más CPU).</param>
 internal sealed record Estadisticas(double Fps, double Mbps, int Tirados, double? RttMs, double AudioPaqS = 0,
-    Nativa.EstadisticasNativa? Nativa = null, string Tuberia = "");
+    Nativa.EstadisticasNativa? Nativa = null, string Tuberia = "", bool CopiaEntreGpus = false);
 
 /// <param name="Tuberia">Fuerza una tubería de <see cref="Tuberias"/>; null = probarlas en orden.</param>
 /// <param name="Monitor">Salida a capturar dentro del adaptador (<see cref="Emisor.Monitor.Salida"/>); 0 = la primera.</param>
@@ -192,7 +193,7 @@ internal sealed class Emision : IEmision
         }
         catch (Exception e) when (e is IOException or SocketException or InvalidDataException)
         {
-            var msg = "Se cortó la conexión con el receptor: " + e.Message;
+            var msg = "Se cortó la conexión con el receptor: " + e.Message.TrimEnd('.') + ". Revisa que el PC y la TV sigan en la misma red (Wi-Fi).";
             Notificar(Fase.Error, msg);
             throw new EmisionException(msg, reintentable: true);
         }
@@ -200,7 +201,7 @@ internal sealed class Emision : IEmision
         {
             // Lo imprevisto también se le dice al usuario: quien llama solo espera EmisionException.
             Registro.Error("error inesperado al transmitir", e);
-            var msg = $"Error inesperado al transmitir: {e.Message}";
+            var msg = $"Error inesperado al transmitir: {e.Message.TrimEnd('.')}. Vuelve a intentarlo; si se repite, en «Avanzado» usa «Diagnóstico para enviar» y manda el archivo.";
             Notificar(Fase.Error, msg);
             throw new EmisionException(msg);
         }
@@ -221,7 +222,7 @@ internal sealed class Emision : IEmision
         }
         catch (SocketException e)
         {
-            throw new EmisionException($"No se pudo conectar con {receptor}: {e.Message}", reintentable: true);
+            throw new EmisionException($"No se pudo conectar con {receptor}: {e.Message.TrimEnd('.')}. Revisa que la TV esté encendida con la app «Pantalla» abierta y en la misma red que este PC.", reintentable: true);
         }
     }
 
@@ -270,23 +271,23 @@ internal sealed class Emision : IEmision
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new EmisionException("El receptor no contestó al saludo.", reintentable: true);
+            throw new EmisionException("El receptor no contestó al saludo. Cierra y vuelve a abrir la app «Pantalla» en la TV.", reintentable: true);
         }
 
-        if (respuesta is null) throw new EmisionException("El receptor cerró la conexión al saludar.", reintentable: true);
+        if (respuesta is null) throw new EmisionException("El receptor cerró la conexión al saludar. Cierra y vuelve a abrir la app «Pantalla» en la TV.", reintentable: true);
         if (respuesta.Tipo == Protocolo.HelloErr)
         {
             var motivo = System.Text.Encoding.UTF8.GetString(respuesta.Carga);
             // «ocupado» y «sin pantalla» pueden pasarse solos (termina el otro emisor, se vuelve a la app).
             throw motivo switch
             {
-                "ocupado" => new EmisionException("La TV ya está recibiendo de otro emisor.", reintentable: true),
+                "ocupado" => new EmisionException("La TV ya está recibiendo de otro emisor: detén esa transmisión o espera a que termine.", reintentable: true),
                 "version" => new EmisionException("El receptor usa otra versión del protocolo: actualiza la app de la TV y este programa."),
-                "sin pantalla" => new EmisionException("La app «Pantalla» no está a la vista en la TV.", reintentable: true),
-                _ => new EmisionException($"El receptor rechazó la conexión: {motivo}"),
+                "sin pantalla" => new EmisionException("La app «Pantalla» no está a la vista en la TV: ábrela y vuelve a transmitir.", reintentable: true),
+                _ => new EmisionException($"El receptor rechazó la conexión: {motivo.TrimEnd('.')}. Cierra y vuelve a abrir la app «Pantalla» en la TV."),
             };
         }
-        if (respuesta.Tipo != Protocolo.HelloOk) throw new EmisionException("Respuesta inesperada del receptor.");
+        if (respuesta.Tipo != Protocolo.HelloOk) throw new EmisionException("Respuesta inesperada del receptor: actualiza la app de la TV y este programa (Buscar actualizaciones).");
     }
 
     /// <summary>
@@ -308,7 +309,9 @@ internal sealed class Emision : IEmision
         }
         if (rutaFfmpeg is null && Fuentes is null && op.Tuberia is null)
             fallos.Add("las de ffmpeg (respaldo): no está instalado (en «Avanzado» se puede descargar)");
-        throw new EmisionException("Ninguna forma de capturar la pantalla funcionó en este PC. " + string.Join(" · ", fallos));
+        // El consejo primero: el globo de Windows corta el texto largo y los motivos se ven completos en la ventana.
+        throw new EmisionException("Ninguna forma de capturar la pantalla funcionó en este PC: en «Avanzado» descarga ffmpeg si falta, "
+            + "o usa «Diagnóstico para enviar». Motivos: " + string.Join(" · ", fallos).TrimEnd('.', ' ') + ".");
     }
 
     private IFuenteVideo CrearFuente(string nombre, string? rutaFfmpeg, OpcionesEmision op) =>
@@ -480,7 +483,8 @@ internal sealed class Emision : IEmision
                 Interlocked.Read(ref _rttUs) is var rtt and >= 0 ? rtt / 1000.0 : null,
                 Interlocked.Exchange(ref _paquetesAudio, 0) / segs,
                 _fuente?.Tomar(),
-                _tuberia);
+                _tuberia,
+                _fuente?.CopiaEntreGpus ?? false);
             _telemetria?.Anotar(e, _cola.Reader.Count, _tuberia);
             NuevasEstadisticas?.Invoke(e);
         }

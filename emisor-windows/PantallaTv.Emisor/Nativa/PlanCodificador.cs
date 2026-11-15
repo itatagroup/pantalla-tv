@@ -36,7 +36,8 @@ internal sealed record IntentoCodificador(ViaCodificacion Via, AdaptadorGpu? Cod
 /// <item>La gráfica dueña de la salida, sobre su propio dispositivo (siempre se prueba, aunque no se sepa de ningún codificador:
 /// Windows puede no listarlos y aun así servir).</item>
 /// <item>Cada otra gráfica con codificador de hardware, copiando allí el cuadro: primero la de más memoria de vídeo (la
-/// dedicada). Las de software («Microsoft Basic Render») no cuentan.</item>
+/// dedicada). Las de software («Microsoft Basic Render») no cuentan, ni las que se llaman como la dueña (DXGI las lista
+/// dos veces), y las que se repiten por nombre cuentan una vez.</item>
 /// <item>El respaldo con ffmpeg (lo hace quien llama: la tubería nativa lanza <see cref="NativaNoDisponibleException"/>).</item>
 /// </list>
 /// Es una función pura: recibe lo que se sabe de las gráficas y devuelve el orden; no abre nada.
@@ -50,11 +51,16 @@ internal static class PlanCodificador
         Func<AdaptadorGpu, int> cuantosCodificadores)
     {
         var plan = new List<IntentoCodificador> { new(ViaCodificacion.MismaGpu, dueno) };
+        // DXGI puede listar la misma gráfica dos veces (dos LUID, mismo nombre): copiar a «la otra» NVIDIA, que es la misma,
+        // sería un intento inútil que siempre falla igual. Se quita la que se llama como la dueña y se deja una por nombre.
         plan.AddRange(adaptadores
-            .Where(a => a.Luid != dueno.Luid && !a.PorSoftware && cuantosCodificadores(a) > 0)
+            .Where(a => a.Luid != dueno.Luid && !a.PorSoftware
+                        && !string.Equals(a.Nombre.Trim(), dueno.Nombre.Trim(), StringComparison.OrdinalIgnoreCase))
             .DistinctBy(a => a.Luid)
             .OrderByDescending(a => a.MemoriaDedicada)
             .ThenBy(a => a.Luid)
+            .DistinctBy(a => a.Nombre.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(a => cuantosCodificadores(a) > 0)
             .Select(a => new IntentoCodificador(ViaCodificacion.CopiaEntreGpus, a)));
         plan.Add(new IntentoCodificador(ViaCodificacion.RespaldoFfmpeg, null));
         return plan;

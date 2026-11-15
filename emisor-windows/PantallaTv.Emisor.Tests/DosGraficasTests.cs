@@ -93,6 +93,35 @@ public class PlanCodificadorTests
     }
 
     [Fact]
+    public void No_se_propone_copiar_a_otra_gpu_con_el_mismo_nombre_que_la_duena()
+    {
+        // DXGI lista la NVIDIA dos veces (dos LUID, mismo nombre y memoria): «copiar a la otra NVIDIA» es la misma.
+        var nvidiaBis = Nvidia with { Luid = 5 };
+        var plan = Plan(Nvidia, [Amd, Nvidia, nvidiaBis]);
+        Assert.Equal([Nvidia, Amd], plan.Where(p => p.Codifica is not null).Select(p => p.Codifica!));
+        Assert.DoesNotContain(plan, p => p.Via == ViaCodificacion.CopiaEntreGpus && p.Codifica!.Nombre == Nvidia.Nombre);
+        // Y si la dueña es la otra entrada, lo mismo.
+        Assert.Equal([nvidiaBis, Amd], Plan(nvidiaBis, [Amd, Nvidia, nvidiaBis]).Where(p => p.Codifica is not null).Select(p => p.Codifica!));
+    }
+
+    [Fact]
+    public void Las_gpus_con_el_mismo_nombre_cuentan_una_sola_vez()
+    {
+        var amdBis = Amd with { Luid = 6 };
+        var plan = Plan(Nvidia, [Nvidia, Amd, amdBis]);
+        Assert.Single(plan, p => p.Via == ViaCodificacion.CopiaEntreGpus);
+        Assert.Equal(Amd, plan[1].Codifica); // la primera (menor LUID)
+    }
+
+    [Fact]
+    public void Una_gpu_repetida_solo_se_consulta_una_vez_por_nombre()
+    {
+        var consultas = new List<long>();
+        Plan(Nvidia, [Nvidia, Nvidia with { Luid = 5 }, Amd, Amd with { Luid = 6 }], a => { consultas.Add(a.Luid); return 1; });
+        Assert.Equal([1L], consultas);
+    }
+
+    [Fact]
     public void El_texto_de_cada_intento_dice_donde_se_codifica()
     {
         var plan = Plan(Nvidia, [Amd, Nvidia]);
@@ -149,6 +178,27 @@ public class TopologiaTests
     {
         Assert.Contains("Extender", MonitorVirtual.TextoPasoAExtender);
         Assert.Contains("desmarca el monitor virtual", MonitorVirtual.TextoPasoAExtender);
+    }
+
+    [Fact]
+    public void El_aviso_de_Duplicar_no_promete_volver_y_cabe_en_un_globo()
+    {
+        // Con una sola pantalla física no se vuelve a «Duplicar» (medido): el globo no lo promete; el detalle va al registro.
+        var texto = MonitorVirtual.TextoPasoAExtender;
+        Assert.DoesNotContain("vuelven a «Duplicar»", texto);
+        Assert.True(texto.Length <= Mando.LargoGlobo, $"no cabe en un globo: {texto.Length}");
+    }
+
+    [Fact]
+    public void Un_texto_largo_para_el_globo_se_corta_en_una_palabra_y_avisa()
+    {
+        var corto = "Algo corto.";
+        Assert.Same(corto, Mando.ParaGlobo(corto));
+        var largo = string.Join(" ", Enumerable.Repeat("palabra", 60)) + " arreglo final";
+        var globo = Mando.ParaGlobo(largo);
+        Assert.True(globo.Length <= Mando.LargoGlobo);
+        Assert.EndsWith("… (detalle en la ventana)", globo);
+        Assert.DoesNotContain("palabr…", globo); // no corta una palabra a la mitad
     }
 }
 
@@ -330,6 +380,89 @@ public class GraficaDelMonitorVirtualTests
         Assert.Contains("→ coincide", igual);
         Assert.Contains("NO coincide", Diagnostico.DescribirGrafica(Nvidia, "default", Amd));
         Assert.Contains("no se puede comparar", Diagnostico.DescribirGrafica(null, null, Amd));
+    }
+}
+
+/// <summary>F2: cuando algo falta o falla, se dice en palabras qué es y cómo se arregla.</summary>
+public class SiempreUnCaminoTests
+{
+    private static SharpGen.Runtime.SharpGenException Fallo(uint hr) => new(new SharpGen.Runtime.Result((int)hr));
+
+    [Theory]
+    [InlineData("Alto rendimiento")]
+    [InlineData("Ahorro de energía")]
+    public void El_aviso_de_la_preferencia_dice_el_arreglo_y_cabe_en_un_globo(string preferencia)
+    {
+        var aviso = Mando.AvisoPreferenciaDeGrafica(preferencia, graficas: 2)!;
+        Assert.Contains($"«{preferencia}»", aviso);
+        Assert.Contains("Configuración › Sistema › Pantalla › Gráficos", aviso);
+        Assert.Contains("«Dejar que Windows decida»", aviso);
+        Assert.True(aviso.Length <= 255, $"el globo de Windows corta a 255 caracteres: {aviso.Length}");
+    }
+
+    [Fact]
+    public void Sin_preferencia_o_con_una_sola_grafica_no_hay_aviso()
+    {
+        Assert.Null(Mando.AvisoPreferenciaDeGrafica(null, graficas: 2));
+        Assert.Null(Mando.AvisoPreferenciaDeGrafica("Alto rendimiento", graficas: 1)); // un PC con una gráfica: no molesta
+    }
+
+    [Fact]
+    public void El_descarte_por_DXGI_UNSUPPORTED_con_preferencia_lo_dice_en_palabras()
+    {
+        var e = Fallo(0x887A0004);
+        var motivo = TuberiaNativa.Explicar(e, "Alto rendimiento");
+        Assert.Contains("0x887A0004", motivo);
+        Assert.Contains("Windows tiene a Pantalla TV en «Alto rendimiento»", motivo);
+        Assert.Contains("«Dejar que Windows decida»", motivo);
+        // Sin preferencia, o con otro error, queda el HRESULT de siempre.
+        Assert.DoesNotContain("Windows tiene a Pantalla TV", TuberiaNativa.Explicar(e));
+        Assert.DoesNotContain("Windows tiene a Pantalla TV", TuberiaNativa.Explicar(Fallo(0x887A0026), "Alto rendimiento"));
+    }
+
+    [Fact]
+    public void El_diagnostico_dice_la_preferencia_o_ninguna()
+    {
+        Assert.Equal("preferencia de gráfica de Windows para este programa: ninguna", Diagnostico.DescribirPreferencia(null));
+        var con = Diagnostico.DescribirPreferencia("Alto rendimiento");
+        Assert.Contains("«Alto rendimiento»", con);
+        Assert.Contains("Dejar que Windows decida", con);
+    }
+
+    [Theory]
+    [InlineData("NVIDIA H.264 Encoder MFT [VEN_10DE]", 0x8000FFFFu, "NVIDIA")] // sin preferencia, aun con dispositivo de la NVIDIA (medido)
+    [InlineData("AMDh264Encoder [VEN_1002]", 0x8007000Eu, "AMD")]             // con el programa en «Alto rendimiento» (medido)
+    public void Con_dos_graficas_la_MFT_que_no_se_deja_crear_se_explica(string mft, uint hr, string marca)
+    {
+        var texto = CodificadorMf.ExplicarDescarte(mft, "ActivateObject", Fallo(hr), variasGraficas: true);
+        Assert.Contains($"la MFT de {marca} no se deja crear en este proceso", texto);
+        Assert.Contains("Windows asigna el programa a la otra", texto);
+        Assert.Contains($"0x{hr:X8}", texto);
+    }
+
+    [Fact]
+    public void Con_una_grafica_o_en_otro_paso_queda_el_HRESULT()
+    {
+        var e = Fallo(0x8000FFFF);
+        Assert.DoesNotContain("no se deja crear", CodificadorMf.ExplicarDescarte("NVIDIA H.264 Encoder MFT [VEN_10DE]", "ActivateObject", e, variasGraficas: false));
+        Assert.DoesNotContain("no se deja crear", CodificadorMf.ExplicarDescarte("NVIDIA H.264 Encoder MFT [VEN_10DE]", "SetD3DManager", e, variasGraficas: true));
+        Assert.DoesNotContain("no se deja crear", CodificadorMf.ExplicarDescarte("NVIDIA H.264 Encoder MFT [VEN_10DE]", "ActivateObject", Fallo(0x80004005), variasGraficas: true));
+    }
+
+    [Theory]
+    [InlineData("AMDh264Encoder [VEN_1002]", 0x1002u)]
+    [InlineData("NVIDIA H.264 Encoder MFT", 0x10DEu)]
+    [InlineData("Intel Quick Sync", 0x8086u)]
+    public void El_fabricante_de_una_MFT_se_lee_del_nombre(string nombre, uint esperado) =>
+        Assert.Equal(esperado, CodificadorMf.VendedorDeMft(nombre));
+
+    [Fact]
+    public void La_ventana_dice_cuando_se_copia_entre_graficas()
+    {
+        var sin = new Estadisticas(60, 4, 0, 3, Tuberia: Tuberias.Nativa);
+        var con = sin with { CopiaEntreGpus = true };
+        Assert.Equal("Propia, sin ffmpeg (nativa)", Mando.TextoForma(sin));
+        Assert.Equal("Captura propia · copia entre gráficas (más CPU)", Mando.TextoForma(con));
     }
 }
 

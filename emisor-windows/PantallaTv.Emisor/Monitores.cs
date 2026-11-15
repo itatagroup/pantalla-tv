@@ -175,7 +175,7 @@ internal static class Monitores
         if (monitor is null)
         {
             Soltar(virtualMonitor, resultado);
-            throw new EmisionException("Windows conectó el monitor virtual pero no aparece en la lista de pantallas.");
+            throw new EmisionException("Windows conectó el monitor virtual pero no aparece en la lista de pantallas. Vuelve a intentarlo; si sigue igual, reinstálalo en «Avanzado» o revisa Configuración → Pantalla.");
         }
         if (virtualMonitor.AvisoTopologia is { } aviso) avisar?.Invoke(aviso);
         var avisos = string.Join(" ", new[] { virtualMonitor.AvisoTopologia, virtualMonitor.AvisoGrafica }.Where(a => a is not null));

@@ -89,9 +89,8 @@ internal sealed class MonitorVirtual
 
     /// <summary>El texto que explica el paso de «Duplicar» a «Extender».</summary>
     internal const string TextoPasoAExtender =
-        "Las pantallas estaban en «Duplicar» y Windows no deja agregar el monitor virtual así: se pasaron a «Extender» "
-        + "mientras se transmite y vuelven a «Duplicar» al terminar. Para ver en la tele el mismo monitor que ves en el PC, "
-        + "desmarca el monitor virtual en «Qué pantalla se transmite».";
+        "Las pantallas estaban en «Duplicar» y así Windows no deja agregar el monitor virtual: pasaron a «Extender». "
+        + "Para ver en la tele lo mismo que en el PC, desmarca el monitor virtual en «Qué pantalla se transmite».";
 
     /// <summary>Los modos que ofrece el controlador (los de su configuración), sin repetir, del mayor al menor.</summary>
     public IReadOnlyList<(int Ancho, int Alto, int Hz)> ModosOfrecidos() =>
@@ -237,7 +236,8 @@ internal sealed class MonitorVirtual
         }
         _restaurarDuplicar = true;
         AvisoTopologia = TextoPasoAExtender;
-        Registro.Anotar($"monitor virtual {Dispositivo}: las pantallas estaban en «Duplicar»; se pasó a «Extender» (se vuelve al terminar)");
+        Registro.Anotar($"monitor virtual {Dispositivo}: las pantallas estaban en «Duplicar»; se pasó a «Extender» "
+                        + "(al terminar vuelven a «Duplicar» si sigue habiendo otra pantalla en «Extender»; con solo la pantalla del PC queda «Extender» guardado para el monitor virtual)");
         // SetDisplayConfig vuelve cuando lo aplicó; por si Windows tarda un instante en reflejarlo.
         var limite = DateTime.UtcNow + TimeSpan.FromSeconds(3);
         while (Topologia.Actual() == TopologiaPantalla.Duplicar && DateTime.UtcNow < limite) Thread.Sleep(100);
@@ -247,7 +247,12 @@ internal sealed class MonitorVirtual
     /// <summary>Al soltar: vuelve a «Duplicar» si lo cambiamos y la persona no lo tocó mientras tanto.</summary>
     private static void RestaurarDuplicar()
     {
-        if (Topologia.Actual() != TopologiaPantalla.Extender) return; // ya la cambió la persona: se respeta
+        var actual = Topologia.Actual();
+        if (actual != TopologiaPantalla.Extender) // la cambió la persona, o solo queda la pantalla del PC: se respeta
+        {
+            Registro.Anotar($"monitor virtual: las pantallas no vuelven a «Duplicar» (ahora: {actual}); queda «Extender» guardado para el monitor virtual y no hace falta cambiarlo");
+            return;
+        }
         var error = Topologia.PasarA(TopologiaPantalla.Duplicar);
         if (error == 0) Registro.Anotar("monitor virtual: las pantallas vuelven a «Duplicar»");
         else Registro.Error($"monitor virtual: no se pudo volver a «Duplicar» ({Topologia.Explicar(error)})");

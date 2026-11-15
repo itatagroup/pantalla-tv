@@ -38,7 +38,7 @@ internal sealed class TrayApp : ApplicationContext
         // El globo de una versión nueva no tiene botones: hacer clic en él abre la ventana, que tiene la banda.
         _icono.BalloonTipClicked += (_, _) => MostrarVentana();
         _mando.Cambio += AlCambiar;
-        _mando.Aviso += (texto, icono) => _icono.ShowBalloonTip(icono == ToolTipIcon.Error ? 6000 : 4000, "Pantalla TV", texto, icono);
+        _mando.Aviso += (texto, icono) => _icono.ShowBalloonTip(icono == ToolTipIcon.Error ? 6000 : 4000, "Pantalla TV", Mando.ParaGlobo(texto), icono);
         // Otra instancia (abrir el programa desde el menú Inicio con este ya corriendo) pide mostrar la ventana.
         _pedidos = Arranque.EscucharPedidos(() => ui.Post(_ => MostrarVentana(), null));
         // El instalador (al actualizar o reinstalar) pide que se cierre para poder reemplazar el ejecutable.

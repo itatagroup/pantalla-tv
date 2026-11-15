@@ -28,6 +28,7 @@ internal static class Diagnostico
         L();
 
         L("== Gráficas (DXGI)");
+        L(DescribirPreferencia(Controlador.PreferenciaDeGrafica(Environment.ProcessPath)));
         try
         {
             using var fabrica = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
@@ -110,6 +111,11 @@ internal static class Diagnostico
         File.WriteAllText(ruta, t.ToString(), Encoding.UTF8);
         return ruta;
     }
+
+    /// <summary>La línea del informe con la preferencia de gráfica de Windows para este programa (con el arreglo si hay una).</summary>
+    internal static string DescribirPreferencia(string? preferencia) =>
+        "preferencia de gráfica de Windows para este programa: "
+        + (preferencia is null ? "ninguna" : $"«{preferencia}» → {Nativa.TuberiaNativa.TextoPreferenciaDeGrafica(preferencia)}");
 
     /// <summary>Abre el informe en el Bloc de notas (para quien no lo corrió desde una consola).</summary>
     public static void Abrir(string ruta) =>
