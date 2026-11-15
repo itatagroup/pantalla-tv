@@ -440,6 +440,27 @@ public class SiempreUnCaminoTests
         Assert.Contains($"0x{hr:X8}", texto);
     }
 
+    [Theory]
+    [InlineData(0x887A0004u, true)]  // DXGI_ERROR_UNSUPPORTED (principal, medido)
+    [InlineData(0x887A0001u, true)]  // DXGI_ERROR_INVALID_CALL (virtual, medido)
+    [InlineData(0x887A0026u, false)] // ACCESS_LOST: UAC, Win+L, cambio de modo (pasajero)
+    [InlineData(0x887A0022u, false)] // NOT_CURRENTLY_AVAILABLE (pasajero)
+    [InlineData(0x8000FFFFu, false)]
+    [InlineData(0x80070005u, false)]
+    public void Los_errores_de_DXGI_se_reconocen(uint hr, bool esDxgi) =>
+        Assert.Equal(esDxgi, TuberiaNativa.EsDeDxgi(unchecked((int)hr)));
+
+    [Fact]
+    public void La_nativa_sin_video_con_preferencia_y_dos_graficas_dice_el_arreglo()
+    {
+        var plazo = TimeSpan.FromSeconds(8);
+        Assert.Equal("no entregó vídeo en 8 s", Emision.MotivoSinVideo(plazo, null, 2));
+        Assert.Equal("no entregó vídeo en 8 s", Emision.MotivoSinVideo(plazo, "Alto rendimiento", 1));
+        var con = Emision.MotivoSinVideo(plazo, "Alto rendimiento", 2);
+        Assert.StartsWith("no entregó vídeo en 8 s: ", con);
+        Assert.Contains("«Dejar que Windows decida»", con);
+    }
+
     [Fact]
     public void Con_una_grafica_o_en_otro_paso_queda_el_HRESULT()
     {

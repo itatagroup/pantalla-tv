@@ -162,7 +162,9 @@ internal static class Diagnostico
                     return lineas;
                 }
                 lineas.Add($"aparece como {monitor.Nombre} {monitor.Ancho}×{monitor.Alto} · adaptador {monitor.Adaptador} ({monitor.NombreAdaptador}), salida {monitor.Salida}");
-                lineas.Add(DescribirGrafica(virtualMonitor.GraficaQueLoDibuja, Controlador.GpuConfigurada(), virtualMonitor.GraficaDePrincipal));
+                lineas.Add(DescribirGrafica(virtualMonitor.GraficaQueLoDibuja, Controlador.GpuConfigurada(), virtualMonitor.GraficaDePrincipal)
+                           + (Controlador.PreferenciaDeGrafica(Environment.ProcessPath) is not null
+                               ? " (NO FIABLE: con una preferencia de gráfica de Windows, DXGI cuelga todas las pantallas de la preferida)" : ""));
                 if (virtualMonitor.AvisoGrafica is { } avisoGrafica) lineas.Add("gráfica: " + avisoGrafica);
                 lineas.Add("captura: " + ProbarNativa(monitor));
             }

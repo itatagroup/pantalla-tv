@@ -314,6 +314,11 @@ internal sealed class Emision : IEmision
             + "o usa «Diagnóstico para enviar». Motivos: " + string.Join(" · ", fallos).TrimEnd('.', ' ') + ".");
     }
 
+    /// <summary>Por qué se descarta una fuente que no entregó vídeo a tiempo; con una preferencia de gráfica y dos gráficas, con el arreglo.</summary>
+    internal static string MotivoSinVideo(TimeSpan plazo, string? preferencia, int graficas) =>
+        $"no entregó vídeo en {plazo.TotalSeconds:0} s"
+        + (preferencia is not null && graficas >= 2 ? ": " + Nativa.TuberiaNativa.TextoPreferenciaDeGrafica(preferencia) : "");
+
     private IFuenteVideo CrearFuente(string nombre, string? rutaFfmpeg, OpcionesEmision op) =>
         Fuentes is { } crear ? crear(nombre)
         : nombre == Tuberias.Nativa ? new Nativa.TuberiaNativa(op.ParaNativa(), () => AhoraUs)
@@ -343,7 +348,14 @@ internal sealed class Emision : IEmision
             var plazo = Task.Delay(PlazoPrimerCuadro, fin.Token);
             var cual = await Task.WhenAny(primera.Task, tarea, plazo);
             ct.ThrowIfCancellationRequested();
-            if (cual == plazo) return $"no entregó vídeo en {PlazoPrimerCuadro.TotalSeconds:0} s";
+            if (cual == plazo)
+            {
+                // Con una preferencia de gráfica de Windows la nativa puede duplicar sin error y no recibir nunca un cuadro
+                // (medido: el monitor virtual con el programa en «Alto rendimiento»): se dice el arreglo, no solo el plazo.
+                var preferencia = nombre == Tuberias.Nativa ? Controlador.PreferenciaDeGrafica(Environment.ProcessPath) : null;
+                return MotivoSinVideo(PlazoPrimerCuadro, preferencia,
+                    preferencia is null ? 0 : Controlador.NombresDeHardware(Controlador.GraficasDelPc()).Count);
+            }
             if (cual == primera.Task)
             {
                 s_fallos.TryRemove(nombre, out _);

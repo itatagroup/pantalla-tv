@@ -188,7 +188,7 @@ internal sealed class TuberiaNativa : IFuenteVideo
     /// <param name="preferencia">La preferencia de gráfica de Windows para este programa («Alto rendimiento»…); null = ninguna.</param>
     internal static string Explicar(Exception e, string? preferencia = null) =>
         e is SharpGenException s
-            ? s.HResult == NoSoportado && preferencia is not null
+            ? EsDeDxgi(s.HResult) && preferencia is not null
                 ? $"{s.Message.Trim()} (0x{s.HResult:X8}): {TextoPreferenciaDeGrafica(preferencia)}"
                 : $"{s.Message.Trim()} (0x{s.HResult:X8})"
             : e.Message;
@@ -201,7 +201,16 @@ internal sealed class TuberiaNativa : IFuenteVideo
 
     /// <summary>Como <see cref="Explicar(Exception, string?)"/>, con la preferencia de gráfica que Windows tenga ahora para este programa.</summary>
     private static string Motivo(Exception e) =>
-        Explicar(e, e is SharpGenException { HResult: NoSoportado } ? Controlador.PreferenciaDeGrafica(Environment.ProcessPath) : null);
+        Explicar(e, e is SharpGenException s && EsDeDxgi(s.HResult) ? Controlador.PreferenciaDeGrafica(Environment.ProcessPath) : null);
+
+    /// <summary>
+    /// Un error de DXGI (0x887Axxxx). Con una preferencia de gráfica la duplicación falla de varias formas (medido en el portátil:
+    /// <c>UNSUPPORTED</c> en el principal, <c>INVALID_CALL</c> o ningún cuadro en el virtual): todas llevan el arreglo.
+    /// </summary>
+    /// Los pasajeros (acceso perdido por UAC o bloqueo, sesión desconectada, salida ocupada) no cuentan: se rehacen solos.
+    internal static bool EsDeDxgi(int hresult) =>
+        (unchecked((uint)hresult) & 0xFFFF0000) == 0x887A0000
+        && hresult is not (AccesoPerdido or SesionDesconectada or NoDisponibleAhora);
 
     /// <summary>Un dispositivo, un codificador y las duplicaciones que hagan falta. Sale por excepción o al cancelar.</summary>
     private void Sesion(CancellationToken ct)
