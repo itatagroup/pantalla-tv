@@ -100,10 +100,14 @@ internal static class Tuberias
         {
             // La duplicación de escritorio captura «salida M del adaptador N»: se le dice a ffmpeg en qué
             // adaptador crear el dispositivo, porque el monitor puede no ser de la gráfica principal.
+            // Va en -filter_complex y no como entrada «-f lavfi -i»: el grafo de una entrada lavfi no recibe
+            // -filter_hw_device, y ddagrab abre su propio dispositivo en la gráfica predeterminada (ffmpeg lo dice:
+            // «Created internal hw_device_ctx»). En un portátil AMD + NVIDIA con el monitor virtual en la NVIDIA se
+            // transmitía así la pantalla del portátil (Diego, 15/11/2026). Con -filter_complex: «Using provided hw_device_ctx».
             // Solo «amf» añade la conversión a NV12: mf y x264 ya convierten por su cuenta (-pix_fmt).
             var conversion = nombre == Amf ? FiltroNv12 : "";
             a.AddRange(["-init_hw_device", $"d3d11va=cap:{adaptador}", "-filter_hw_device", "cap",
-                "-f", "lavfi", "-i", $"ddagrab={monitor}:framerate={fps},hwdownload,format=bgra{conversion}"]);
+                "-filter_complex", $"ddagrab={monitor}:framerate={fps},hwdownload,format=bgra{conversion}"]);
         }
         a.AddRange(["-fps_mode", "cfr", "-r", fps]);
 

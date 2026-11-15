@@ -199,6 +199,9 @@ public class MonitoresTests
         Assert.DoesNotContain(Tuberias.AmfGpu, candidatas);
         Assert.Equal(Tuberias.Todas.Count - 1, candidatas.Count);
         Assert.Equal("d3d11va=cap:1", args[args.IndexOf("-init_hw_device") + 1]);
+        // Regresión (15/11/2026): como entrada «-f lavfi -i» ddagrab ignoraba el adaptador y capturaba la gráfica predeterminada.
+        Assert.StartsWith("ddagrab=0:", args[args.IndexOf("-filter_complex") + 1]);
+        Assert.DoesNotContain("lavfi", args);
         Assert.Contains("ddagrab=0:framerate=60,hwdownload,format=bgra,format=nv12", args);
         // En la gráfica principal no se quita ninguna.
         Assert.Equal(Tuberias.Todas, Tuberias.Candidatas(Tuberias.Todas, op with { Adaptador = 0 }));
