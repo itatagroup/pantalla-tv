@@ -495,8 +495,7 @@ internal sealed partial class Mando : IDisposable
     {
         if (_transmisiones.Count(t => t.EnCurso) >= MaxTransmisiones)
             return $"Ya hay {MaxTransmisiones} transmisiones a la vez, que es el máximo. Detén una para empezar otra.";
-        if (DestinosLibres().Count == 0)
-            return "Todas las TV que se ven ya reciben una transmisión. Abre «Pantalla» en otra TV o escribe su IP.";
+        // Sin TV libre a la vista no se bloquea: queda «Escribir IP…» (una TV que no se anuncia, o un receptor tras adb forward).
         if (!OpcionesPantalla().Opciones.Any(o => o.Disponible) && _monitores.Count > 0)
             return "Todas las pantallas ya se están transmitiendo. Para más, instala más monitores virtuales en «Avanzado».";
         return null;
@@ -591,7 +590,9 @@ internal sealed partial class Mando : IDisposable
                     var reubicable = preparado.AvisoGrafica is not null && Controlador.ConfiguracionEsNuestra(); // fuera del hilo de la interfaz
                     EnLaInterfaz(() => { AvisoGrafica = preparado.AvisoGrafica; _graficaReubicable = reubicable; Cambio?.Invoke(); });
                 }
-                EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"Monitor virtual · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
+                // Con varios virtuales la fila dice cuál («Monitor virtual 2»), como en «Qué pantalla».
+                var textoVirtual = MonitorVirtual.NumeroDeNombre(nombreMonitor) is int nv and > 1 ? $"Monitor virtual {nv}" : "Monitor virtual";
+                EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"{textoVirtual} · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
                 // Más cuadros que los Hz de la pantalla (la del monitor virtual o la de la tele) no se ven y gastan más.
                 var fps = Math.Min(a.Fps, preparado.Hz ?? (tele?.Hz is int hz && hz >= 24 ? hz : a.Fps));
                 if (fps != a.Fps)
