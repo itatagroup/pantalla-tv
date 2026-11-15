@@ -288,7 +288,7 @@ internal sealed partial class Mando : IDisposable
               + (p.Horizontal.Alto > LineasAutomaticas ? $" (hasta {LineasAutomaticas} líneas; más, eligiéndolo aquí). " : ". ")
             : $"«{tele.Nombre}» no informa su pantalla (versión anterior a la 0.8.0): en automático se usa 1920×1080 a 60 Hz. ";
         if (Controlador.ConfiguracionDesactualizada())
-            texto += "Reinstala el monitor virtual para tener más tamaños y frecuencias (pide permiso de administrador). ";
+            texto += "Reinstala el monitor virtual para tener más tamaños y frecuencias y hasta 4 monitores virtuales (pide permiso de administrador). ";
         if (AvisoGrafica is { } grafica) texto += grafica;
         return texto.Trim();
     }

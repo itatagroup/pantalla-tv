@@ -103,4 +103,112 @@ public class MonitorVirtualTests
         // aunque la de la izquierda sea la única: su borde derecho es 0, no un valor negativo
         Assert.Equal((0, 0), MonitorVirtual.PosicionADerecha([new Rectangle(-1280, 0, 1280, 1024)]));
     }
-}
+
+    [Theory]
+    [InlineData("virtual", 1)]
+    [InlineData("virtual2", 2)]
+    [InlineData("virtual3", 3)]
+    [InlineData("virtual4", 4)]
+    [InlineData("Virtual3", 3)]
+    [InlineData(" virtual2 ", 2)]
+    public void Reconoce_los_nombres_de_monitor_virtual(string nombre, int numero) =>
+        Assert.Equal(numero, MonitorVirtual.NumeroDeNombre(nombre));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(@"\\.\DISPLAY2")]
+    [InlineData("virtual0")]
+    [InlineData("virtual1")]
+    [InlineData("virtual5")]
+    [InlineData("virtual10")]
+    [InlineData("virtual2x")]
+    [InlineData("virtualx")]
+    [InlineData("2")]
+    public void Lo_que_no_es_un_monitor_virtual_no_tiene_numero(string? nombre) =>
+        Assert.Null(MonitorVirtual.NumeroDeNombre(nombre));
+
+    [Fact]
+    public void El_nombre_de_cada_numero_vuelve_al_mismo_numero()
+    {
+        Assert.Equal("virtual", MonitorVirtual.NombreDeNumero(1));
+        Assert.Equal("virtual3", MonitorVirtual.NombreDeNumero(3));
+        for (var n = 1; n <= Controlador.MonitoresVirtuales; n++)
+            Assert.Equal(n, MonitorVirtual.NumeroDeNombre(MonitorVirtual.NombreDeNumero(n)));
+    }
+
+    [Fact]
+    public void Un_numero_que_no_existe_explica_que_hay_que_reinstalar()
+    {
+        var texto = MonitorVirtual.TextoNoExiste(3);
+        Assert.Equal("El monitor virtual 3 no existe: reinstala el monitor virtual en «Avanzado» para tener hasta 4.", texto);
+    }
+
+    [Fact]
+    public void Las_marcas_son_una_por_monitor_y_la_primera_conserva_su_nombre()
+    {
+        Assert.Equal("monitor-virtual-conectado.marca", MonitorVirtual.NombreDeMarca(1));
+        Assert.Equal("monitor-virtual-conectado-2.marca", MonitorVirtual.NombreDeMarca(2));
+        Assert.Equal("monitor-virtual-conectado-4.marca", MonitorVirtual.NombreDeMarca(4));
+        Assert.Equal(MonitorVirtual.RutaMarca, MonitorVirtual.RutaMarcaDe(1));
+        var rutas = Enumerable.Range(1, Controlador.MonitoresVirtuales).Select(MonitorVirtual.RutaMarcaDe).ToList();
+        Assert.Equal(rutas.Count, rutas.Distinct().Count());
+    }
+
+    [Fact]
+    public void Las_salidas_del_controlador_se_numeran_en_el_orden_de_Windows_y_ignoran_las_demas()
+    {
+        var salidas = new[]
+        {
+            (@"\\.\DISPLAY1", @"PCI\VEN_1002&DEV_1638"),
+            (@"\\.\DISPLAY9", @"ROOT\DISPLAY\0000\MttVDD"),
+            (@"\\.\DISPLAY3", @"ROOT\DISPLAY\0000\MttVDD"),
+            (@"\\.\DISPLAY2", @"ROOT\DISPLAY\0000\mttvdd"),
+        };
+        // El orden es el de la enumeración, no el del número de DISPLAYn.
+        Assert.Equal([@"\\.\DISPLAY9", @"\\.\DISPLAY3", @"\\.\DISPLAY2"], MonitorVirtual.SalidasDelControlador(salidas));
+        Assert.Empty(MonitorVirtual.SalidasDelControlador([]));
+        var seis = Enumerable.Range(1, 6).Select(i => ($@"\\.\DISPLAY{i}", @"ROOT\DISPLAY\0000\MttVDD"));
+        Assert.Equal(Controlador.MonitoresVirtuales, MonitorVirtual.SalidasDelControlador(seis).Count);
+    }
+
+    [Fact]
+    public void Un_virtual_nuevo_va_a_la_derecha_de_los_otros_virtuales_ya_conectados()
+    {
+        var real = new Rectangle(0, 0, 1920, 1080);
+        var virtual1 = new Rectangle(1920, 0, 1920, 1080);
+        var virtual2 = new Rectangle(3840, 0, 1280, 720);
+        Assert.Equal((3840, 0), MonitorVirtual.PosicionADerecha([real, virtual1]));
+        Assert.Equal((5120, 0), MonitorVirtual.PosicionADerecha([real, virtual1, virtual2]));
+        Assert.Equal((5120, 0), MonitorVirtual.PosicionADerecha([virtual2, real, virtual1])); // el orden no importa
+    }
+
+    [Fact]
+    public void El_estado_lista_todos_los_monitores_virtuales()
+    {
+        Assert.Equal(["monitor virtual: no instalado"], Cli.LineasMonitorVirtual([]));
+        var lineas = Cli.LineasMonitorVirtual([(1, @"\\.\DISPLAY6", false), (2, @"\\.\DISPLAY7", true)]);
+        Assert.Equal(3, lineas.Count);
+        Assert.Contains("2 salidas", lineas[0]);
+        Assert.Equal(@"monitor virtual 1: \\.\DISPLAY6, desconectado", lineas[1]);
+        Assert.Equal(@"monitor virtual 2: \\.\DISPLAY7, conectado al escritorio", lineas[2]);
+    }
+
+    [Fact]
+    public void Una_configuracion_de_un_monitor_se_actualiza_a_cuatro_y_conserva_la_grafica()
+    {
+        const string amd = "AMD Radeon(TM) Graphics";
+        var deUno = Controlador.ConfiguracionesAnteriores.Last().Replace("<friendlyname>default</friendlyname>", $"<friendlyname>{amd}</friendlyname>");
+        Assert.Contains("<count>1</count>", deUno);
+        // Sin otra gráfica pedida: se queda con la que tenía.
+        var nueva = Controlador.ConfiguracionAEscribir(deUno, null);
+        Assert.NotNull(nueva);
+        Assert.Contains("<count>4</count>", nueva);
+        Assert.Equal(amd, Controlador.GpuDeConfiguracion(nueva));
+        // Con otra pedida: la nueva.
+        Assert.Equal("NVIDIA", Controlador.GpuDeConfiguracion(Controlador.ConfiguracionAEscribir(deUno, "NVIDIA")!));
+        // Ya al día, o del usuario: no se toca. Sin archivo: se escribe la de ahora.
+        Assert.Null(Controlador.ConfiguracionAEscribir(nueva, null));
+        Assert.Null(Controlador.ConfiguracionAEscribir(deUno.Replace("<HardwareCursor>true<", "<HardwareCursor>false<"), null));
+        Assert.Equal(Controlador.ConfiguracionPropia(), Controlador.ConfiguracionAEscribir(null, null));
+    }}

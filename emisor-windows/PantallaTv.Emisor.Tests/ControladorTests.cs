@@ -25,10 +25,11 @@ public class ControladorTests
     }
 
     [Fact]
-    public void La_configuracion_propia_es_xml_valido_con_un_monitor_y_1080p60()
+    public void La_configuracion_propia_es_xml_valido_con_cuatro_monitores_y_1080p60()
     {
         var xml = XDocument.Parse(Controlador.ConfiguracionPropia());
-        Assert.Equal("1", xml.Root!.Element("monitors")!.Element("count")!.Value);
+        Assert.Equal("4", xml.Root!.Element("monitors")!.Element("count")!.Value);
+        Assert.Equal(Controlador.MonitoresVirtuales, int.Parse(xml.Root.Element("monitors")!.Element("count")!.Value));
         var modos = xml.Root.Element("resolutions")!.Elements("resolution")
             .Select(r => (int.Parse(r.Element("width")!.Value), int.Parse(r.Element("height")!.Value), int.Parse(r.Element("refresh_rate")!.Value)))
             .ToList();
@@ -44,7 +45,7 @@ public class ControladorTests
         var propia = Controlador.ConfiguracionPropia();
         Assert.True(Controlador.EsConfiguracionPropia(propia));
         Assert.True(Controlador.EsConfiguracionPropia(propia.ReplaceLineEndings("\n")));
-        Assert.False(Controlador.EsConfiguracionPropia(propia.Replace("<count>1</count>", "<count>2</count>")));
+        Assert.False(Controlador.EsConfiguracionPropia(propia.Replace("<count>4</count>", "<count>2</count>")));
         Assert.False(Controlador.EsConfiguracionPropia("<vdd_settings/>"));
         Assert.False(Controlador.EsConfiguracionPropia(""));
     }
@@ -119,4 +120,17 @@ public class ControladorTests
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "controlador"))) dir = dir.Parent;
         return Path.Combine(dir?.FullName ?? throw new DirectoryNotFoundException("controlador/"), "controlador", archivo);
     }
-}
+
+    [Fact]
+    public void La_configuracion_de_un_monitor_se_reconoce_como_propia_y_anterior_con_o_sin_grafica()
+    {
+        var deUno = Controlador.ConfiguracionPropia().Replace("<count>4</count>", "<count>1</count>");
+        Assert.True(Controlador.EsConfiguracionPropia(deUno));
+        Assert.True(Controlador.EsConfiguracionAnterior(deUno));
+        Assert.False(Controlador.EsConfiguracionAnterior(Controlador.ConfiguracionPropia()));
+        var conGrafica = Controlador.ConfiguracionPropia("AMD Radeon(TM) Graphics").Replace("<count>4</count>", "<count>1</count>");
+        Assert.True(Controlador.EsConfiguracionPropia(conGrafica));
+        Assert.True(Controlador.EsConfiguracionAnterior(conGrafica));
+        // Con 2 o 3 monitores la escribió la persona: no es nuestra.
+        Assert.False(Controlador.EsConfiguracionPropia(deUno.Replace("<count>1</count>", "<count>3</count>")));
+    }}

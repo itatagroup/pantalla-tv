@@ -149,7 +149,7 @@ internal static class Monitores
     /// sesión va como interactiva y el receptor la muestra sin búfer (ver protocolo.md, «Búfer»).
     /// </summary>
     public static bool EsElVirtual(Monitor monitor) =>
-        MonitorVirtual.Detectar() is { } v && string.Equals(v.Dispositivo, monitor.Nombre, StringComparison.OrdinalIgnoreCase);
+        MonitorVirtual.DetectarTodos().Any(v => string.Equals(v.Dispositivo, monitor.Nombre, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Deja listo el monitor elegido. Con el virtual lo conecta al escritorio (si no lo estaba) y
@@ -158,16 +158,18 @@ internal static class Monitores
     /// </summary>
     public static Preparado Preparar(string? elegido, Action<string>? avisar = null, (int Ancho, int Alto, int Hz)? modoVirtual = null)
     {
-        if (elegido != ElMonitorVirtual) return new Preparado(Elegir(elegido), () => { });
+        if (MonitorVirtual.NumeroDeNombre(elegido) is not { } numero) return new Preparado(Elegir(elegido), () => { });
 
-        var virtualMonitor = MonitorVirtual.Detectar();
-        if (virtualMonitor is null)
+        var todos = MonitorVirtual.DetectarTodos();
+        if (todos.Count == 0)
         {
             // Como un monitor desenchufado: se transmite el principal en vez de fallar.
             avisar?.Invoke("El monitor virtual no está instalado; se transmite la pantalla principal.");
             return new Preparado(Elegir(null), () => { });
         }
-        avisar?.Invoke("Conectando el monitor virtual…");
+        var virtualMonitor = todos.FirstOrDefault(m => m.Numero == numero)
+                             ?? throw new EmisionException(MonitorVirtual.TextoNoExiste(numero)); // una configuración vieja con menos monitores
+        avisar?.Invoke(numero == 1 ? "Conectando el monitor virtual…" : $"Conectando el monitor virtual {numero}…");
         var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20), modoVirtual);
         if (resultado == MonitorVirtual.Resultado.Fallo)
             throw new EmisionException(virtualMonitor.Motivo ?? "No se pudo conectar el monitor virtual a Windows. Pruébalo en Configuración → Pantalla.");

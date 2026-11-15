@@ -73,7 +73,7 @@ internal static class Controlador
     /// <summary>Lo quita del escritorio (si lo está) y después quita dispositivo y paquete pidiendo permiso.</summary>
     public static Respuesta QuitarConPermiso(string id)
     {
-        if (MonitorVirtual.Detectar() is { } monitor) monitor.Liberar();
+        foreach (var monitor in MonitorVirtual.DetectarTodos()) monitor.Liberar();
         var r = EjecutarElevado("--quitar-controlador");
         if (r.Resultado == Resultado.Hecho) Marcar(id, false);
         return r;
@@ -106,18 +106,44 @@ internal static class Controlador
     internal static bool DejarDesconectado(TimeSpan espera)
     {
         var limite = DateTime.UtcNow + espera;
-        MonitorVirtual? monitor = null;
-        while (monitor is null && DateTime.UtcNow < limite)
+        var todos = MonitorVirtual.DetectarTodos();
+        while (todos.Count == 0 && DateTime.UtcNow < limite)
         {
-            monitor = MonitorVirtual.Detectar();
-            if (monitor is null) Thread.Sleep(250);
+            Thread.Sleep(250);
+            todos = MonitorVirtual.DetectarTodos();
         }
         // No apareció (p. ej. falta reiniciar): cuando aparezca, Windows lo conectará y nadie lo quitará.
-        if (monitor is null) return false;
+        if (todos.Count == 0) return false;
 
-        var resto = limite - DateTime.UtcNow;
-        return monitor.Liberar(resto > TimeSpan.FromSeconds(8) ? resto : TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(4));
+        // Windows conecta y extiende solo cada monitor nuevo, y no todos a la vez: se espera un poco a que salgan los N.
+        var hastaTodos = MinimoDe(limite, DateTime.UtcNow + TimeSpan.FromSeconds(6));
+        while (todos.Count < MonitoresVirtuales && DateTime.UtcNow < hastaTodos)
+        {
+            Thread.Sleep(250);
+            todos = MonitorVirtual.DetectarTodos();
+        }
+
+        // Se desconectan todos los que haya, una y otra vez, hasta que pasa un rato sin que Windows conecte alguno.
+        var fin = limite > DateTime.UtcNow + TimeSpan.FromSeconds(8) ? limite : DateTime.UtcNow + TimeSpan.FromSeconds(8);
+        var desde = DateTime.UtcNow;
+        while (DateTime.UtcNow < fin)
+        {
+            var conectados = MonitorVirtual.DetectarTodos().Where(m => m.EstaConectado()).ToList();
+            if (conectados.Count > 0)
+            {
+                foreach (var m in conectados) m.Desconectar();
+                desde = DateTime.UtcNow;
+            }
+            else if (DateTime.UtcNow - desde >= TimeSpan.FromSeconds(4))
+            {
+                break;
+            }
+            Thread.Sleep(100);
+        }
+        return !MonitorVirtual.DetectarTodos().Any(m => m.EstaConectado());
     }
+
+    private static DateTime MinimoDe(DateTime a, DateTime b) => a < b ? a : b;
 
     /// <summary>Relanza este mismo ejecutable como administrador con <paramref name="orden"/> y espera a que termine.</summary>
     private static Respuesta EjecutarElevado(string orden)
@@ -313,14 +339,30 @@ internal static class Controlador
     internal static readonly int[] FrecuenciasPropias = [60, 50, 30];
 
     /// <summary>
-    /// La configuración que escribe Pantalla TV: un monitor y los modos de <see cref="TamanosPropios"/> (sin la lista
+    /// La configuración que escribe Pantalla TV: <see cref="MonitoresVirtuales"/> monitores y los modos de <see cref="TamanosPropios"/> (sin la lista
     /// «global» de frecuencias, que duplicaría los modos). Las opciones, como las trae el controlador.
     /// </summary>
     internal static string ConfiguracionPropia(string gpu = GpuPorDefecto) =>
-        Configuracion(TamanosPropios.SelectMany(t => FrecuenciasPropias.Select(hz => (t.Ancho, t.Alto, hz))), gpu);
+        Configuracion(ModosPropios, gpu);
 
-    /// <summary>Las que escribieron versiones anteriores (hasta la 0.10): se reconocen como nuestras y se actualizan.</summary>
-    internal static readonly string[] ConfiguracionesAnteriores = [Configuracion([(1920, 1080, 60), (1280, 720, 60)], GpuPorDefecto)];
+    private static IEnumerable<(int Ancho, int Alto, int Hz)> ModosPropios =>
+        TamanosPropios.SelectMany(t => FrecuenciasPropias.Select(hz => (t.Ancho, t.Alto, hz)));
+
+    /// <summary>
+    /// Cuántos monitores virtuales crea el controlador con la configuración de ahora (<c>&lt;count&gt;</c>): hasta 4 transmisiones
+    /// a la vez, cada una a una tele distinta. Todas las salidas son «VDD by MTT» con el mismo id de hardware.
+    /// </summary>
+    public const int MonitoresVirtuales = 4;
+
+    /// <summary>
+    /// Las que escribieron versiones anteriores: se reconocen como nuestras y se actualizan. La de la 0.10 (dos modos, un monitor) y
+    /// la de las versiones con todos los tamaños pero un solo monitor.
+    /// </summary>
+    internal static readonly string[] ConfiguracionesAnteriores =
+    [
+        Configuracion([(1920, 1080, 60), (1280, 720, 60)], GpuPorDefecto, monitores: 1),
+        Configuracion(ModosPropios, GpuPorDefecto, monitores: 1),
+    ];
 
     /// <summary>El <c>friendlyname</c> que deja elegir la gráfica a Windows.</summary>
     internal const string GpuPorDefecto = "default";
@@ -329,7 +371,7 @@ internal static class Controlador
     /// <paramref name="gpu"/>: el <c>friendlyname</c> de la gráfica que dibuja el monitor virtual (la descripción DXGI, p. ej.
     /// «AMD Radeon(TM) Graphics»); «default» deja elegir a Windows. Se escapa para XML.
     /// </summary>
-    internal static string Configuracion(IEnumerable<(int Ancho, int Alto, int Hz)> modos, string gpu)
+    internal static string Configuracion(IEnumerable<(int Ancho, int Alto, int Hz)> modos, string gpu, int monitores = MonitoresVirtuales)
     {
         var nombreGpu = System.Security.SecurityElement.Escape(string.IsNullOrWhiteSpace(gpu) ? GpuPorDefecto : gpu.Trim());
         var resoluciones = string.Concat(modos.Select(m =>
@@ -339,7 +381,7 @@ internal static class Controlador
         <!-- Escrito por Pantalla TV al instalar el monitor virtual. Si lo cambias, Pantalla TV no lo borra al quitar el controlador. -->
         <vdd_settings>
             <monitors>
-                <count>1</count>
+                <count>@@N@@</count>
             </monitors>
             <gpu>
                 <friendlyname>@@GPU@@</friendlyname>
@@ -359,7 +401,7 @@ internal static class Controlador
                 <debuglogging>false</debuglogging>
             </options>
         </vdd_settings>
-        """).Replace("@@GPU@@", nombreGpu).ReplaceLineEndings("\r\n") + "\r\n";
+        """).Replace("@@GPU@@", nombreGpu).Replace("@@N@@", monitores.ToString(System.Globalization.CultureInfo.InvariantCulture)).ReplaceLineEndings("\r\n") + "\r\n";
     }
 
     private static readonly System.Text.RegularExpressions.Regex NombreDeGpu =
@@ -497,7 +539,7 @@ internal static class Controlador
         return c == Normalizar(ConfiguracionPropia()) || ConfiguracionesAnteriores.Any(a => c == Normalizar(a));
     }
 
-    /// <summary>¿Es una configuración nuestra de una versión anterior (con menos modos)? Reinstalar la actualiza.</summary>
+    /// <summary>¿Es una configuración nuestra de una versión anterior (con menos modos o un solo monitor)? Reinstalar la actualiza.</summary>
     internal static bool EsConfiguracionAnterior(string contenido) =>
         EsConfiguracionPropia(contenido) && Normalizar(contenido) != Normalizar(ConfiguracionPropia());
 
@@ -523,15 +565,24 @@ internal static class Controlador
     {
         var ruta = RutaConfiguracion();
         var actual = File.Exists(ruta) ? File.ReadAllText(ruta) : null;
-        var nueva = ConfiguracionPropia(gpu ?? (actual is null ? null : GpuDeConfiguracion(actual)) ?? GpuPorDefecto);
-        if (actual is not null)
-        {
-            // Una nuestra (con otra gráfica, o de una versión anterior) se actualiza; la del usuario no se pisa.
-            if (!EsConfiguracionPropia(actual) || actual.ReplaceLineEndings("\n").Trim() == nueva.ReplaceLineEndings("\n").Trim()) return false;
-        }
+        if (ConfiguracionAEscribir(actual, gpu) is not { } nueva) return false;
         Directory.CreateDirectory(Path.GetDirectoryName(ruta)!);
         File.WriteAllText(ruta, nueva, new UTF8Encoding(false));
         return true;
+    }
+
+    /// <summary>
+    /// Lo que hay que escribir dado el contenido <paramref name="actual"/> (null: no hay archivo), o null si no hay que tocar nada
+    /// (la del usuario, o ya está al día). Una nuestra de una versión anterior (un solo monitor, menos modos) se reescribe con la de ahora
+    /// y conserva su <c>friendlyname</c> si <paramref name="gpu"/> es null.
+    /// </summary>
+    internal static string? ConfiguracionAEscribir(string? actual, string? gpu)
+    {
+        var nueva = ConfiguracionPropia(gpu ?? (actual is null ? null : GpuDeConfiguracion(actual)) ?? GpuPorDefecto);
+        if (actual is null) return nueva;
+        // Una nuestra (con otra gráfica, o de una versión anterior) se actualiza; la del usuario no se pisa.
+        if (!EsConfiguracionPropia(actual) || actual.ReplaceLineEndings("\n").Trim() == nueva.ReplaceLineEndings("\n").Trim()) return null;
+        return nueva;
     }
 
     private static void BorrarConfiguracionSiEsNuestra()

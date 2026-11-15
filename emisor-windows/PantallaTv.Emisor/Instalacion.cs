@@ -216,7 +216,7 @@ internal static class Instalacion
     {
         ComprobarCerrado(id);
         var carpeta = CarpetaInstalada(id);
-        if (MonitorVirtual.Detectar() is { } monitor && monitor.EstaConectado()) monitor.Liberar();
+        foreach (var monitor in MonitorVirtual.DetectarTodos().Where(m => m.EstaConectado())) monitor.Liberar();
         AccesoDirecto(RutaMenuInicio(id), "", crear: false);
         AccesoDirecto(RutaEscritorio(id), "", crear: false);
         IniciarConWindows(false, "", id);

@@ -8,11 +8,11 @@ namespace PantallaTv.Emisor;
 /// Modo de consola para probar y automatizar sin la bandeja.
 /// <code>
 /// PantallaTv.exe --descubrir [--seg 6]
-/// PantallaTv.exe --cli --ip 10.0.0.20 [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual] [--reconectar]
+/// PantallaTv.exe --cli --ip 10.0.0.20 [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual|virtual2|virtual3|virtual4] [--reconectar]
 ///     (solo con la nativa:) [--latido 30] [--sin-cursor]; --kbps es el tope y --clave, una clave de seguridad (0 = solo a pedido)
 /// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
-/// PantallaTv.exe --monitor-virtual estado|conectar|desconectar
+/// PantallaTv.exe --monitor-virtual estado|conectar [n]|desconectar [n]   (hasta 4 monitores virtuales; sin n, el 1; estado los lista todos)
 /// PantallaTv.exe --manifiesto-url https://servidor/emisor-windows.json
 /// </code>
 /// <c>--manifiesto-url</c> (para probar las actualizaciones) abre el programa de bandeja normal, pero lee el
@@ -34,12 +34,18 @@ internal static class Cli
         if (args.Contains("--diagnostico")) return Diagnosticar(conConsola);
         if (args.Contains("--quitar-silencio")) return QuitarSilencio();
         if (args.Contains("--audio-info")) return AudioInfo();
-        if (args.Contains("--monitor-virtual")) return ComandoMonitorVirtual(Texto(args, "--monitor-virtual"));
+        if (args.Contains("--monitor-virtual"))
+        {
+            // «--monitor-virtual conectar 2»: el número es lo que sigue a la orden, si no es otra opción («--seg 5»).
+            var orden = Texto(args, "--monitor-virtual");
+            var numero = orden is null ? null : Texto(args, orden);
+            return ComandoMonitorVirtual(orden, numero is not null && numero.StartsWith("--", StringComparison.Ordinal) ? null : numero);
+        }
         if (args.Contains("--monitores"))
         {
             foreach (var m in Monitores.Listar())
                 Console.WriteLine($"{m.Indice}\t{m.Ancho}x{m.Alto}\t{(m.Principal ? "principal" : "")}\t{m.Nombre}\t{m.Descripcion}\tadaptador {m.Adaptador} ({m.NombreAdaptador}), salida {m.Salida}");
-            Console.WriteLine($"monitor virtual: {EstadoMonitorVirtual()}");
+            foreach (var linea in LineasMonitorVirtual()) Console.WriteLine(linea);
             return 0;
         }
         var seg = Numero(args, "--seg", args.Contains("--descubrir") ? 6 : 0);
@@ -64,28 +70,54 @@ internal static class Cli
         return $"{d.FriendlyName}: {f.SampleRate} Hz, {f.Channels} canales, {f.BitsPerSample} bits; silenciado={d.AudioEndpointVolume.Mute}; volumen={d.AudioEndpointVolume.MasterVolumeLevelScalar:P0}";
     }
 
-    internal static string EstadoMonitorVirtual() => MonitorVirtual.Detectar() is { } v
-        ? $"instalado ({v.Dispositivo}), {(v.EstaConectado() ? "conectado al escritorio" : "desconectado")}"
-        : "no instalado";
+    /// <summary>Una línea por monitor virtual (número, salida de Windows, conectado o no), o «no instalado».</summary>
+    internal static IReadOnlyList<string> LineasMonitorVirtual() =>
+        LineasMonitorVirtual(MonitorVirtual.DetectarTodos().Select(v => (v.Numero, v.Dispositivo, v.EstaConectado())).ToList());
 
-    /// <summary>Diagnóstico del monitor virtual: <c>estado</c>, <c>conectar</c> o <c>desconectar</c>.</summary>
-    private static int ComandoMonitorVirtual(string? orden)
+    internal static IReadOnlyList<string> LineasMonitorVirtual(IReadOnlyList<(int Numero, string Dispositivo, bool Conectado)> monitores) =>
+        monitores.Count == 0
+            ? ["monitor virtual: no instalado"]
+            : [$"monitor virtual: instalado, {monitores.Count} {(monitores.Count == 1 ? "salida" : "salidas")} (se piden con virtual, virtual2…)",
+               .. monitores.Select(m => $"monitor virtual {m.Numero}: {m.Dispositivo}, {(m.Conectado ? "conectado al escritorio" : "desconectado")}")];
+
+    /// <summary>
+    /// Diagnóstico del monitor virtual: <c>estado</c> (todos), <c>conectar [n]</c> o <c>desconectar [n]</c> (sin <c>n</c>, el 1).
+    /// </summary>
+    private static int ComandoMonitorVirtual(string? orden, string? numeroTexto)
     {
         if (orden is not ("estado" or "conectar" or "desconectar"))
         {
-            Console.Error.WriteLine("Uso: --monitor-virtual estado|conectar|desconectar");
+            Console.Error.WriteLine("Uso: --monitor-virtual estado|conectar [n]|desconectar [n]   (n: 1 a " + Controlador.MonitoresVirtuales + ", sin n el 1)");
             return 1;
         }
-        var v = MonitorVirtual.Detectar();
-        if (v is null)
+        var numero = 1;
+        if (orden != "estado" && numeroTexto is not null
+            && (!int.TryParse(numeroTexto, out numero) || numero < 1 || numero > Controlador.MonitoresVirtuales))
+        {
+            Console.Error.WriteLine($"El monitor virtual «{numeroTexto}» no existe. Pon un número del 1 al {Controlador.MonitoresVirtuales}, por ejemplo: --monitor-virtual {orden} 2");
+            return 1;
+        }
+        var todos = MonitorVirtual.DetectarTodos();
+        if (todos.Count == 0)
         {
             Console.WriteLine("monitor virtual: no instalado");
             return orden == "estado" ? 0 : 2;
         }
+        if (orden == "estado")
+        {
+            foreach (var linea in LineasMonitorVirtual()) Console.WriteLine(linea);
+            return 0;
+        }
+        var v = todos.FirstOrDefault(m => m.Numero == numero);
+        if (v is null)
+        {
+            Console.Error.WriteLine(MonitorVirtual.TextoNoExiste(numero));
+            return 2;
+        }
         if (orden == "conectar")
         {
             var r = v.Conectar(TimeSpan.FromSeconds(20));
-            Console.WriteLine($"conectar: {r}");
+            Console.WriteLine($"conectar {numero}: {r}");
             if (v.AvisoTopologia is { } aviso) Console.WriteLine(aviso);
             if (v.AvisoGrafica is { } grafica) Console.WriteLine(grafica);
             if (r == MonitorVirtual.Resultado.Fallo)
@@ -93,18 +125,17 @@ internal static class Cli
                 if (v.Motivo is { } motivo) Console.Error.WriteLine(motivo);
                 return 3;
             }
-            MonitorVirtual.OlvidarMarca(); // conectado a mano: que el próximo arranque no lo quite
+            v.OlvidarMarca(); // conectado a mano: que el próximo arranque no lo quite
         }
-        else if (orden == "desconectar")
+        else
         {
             var ok = v.Liberar();
-            Console.WriteLine($"desconectar: {(ok ? "listo" : "no se pudo")}");
+            Console.WriteLine($"desconectar {numero}: {(ok ? "listo" : "no se pudo")}");
             if (!ok) return 3;
         }
-        Console.WriteLine($"monitor virtual: {EstadoMonitorVirtual()}");
+        foreach (var linea in LineasMonitorVirtual()) Console.WriteLine(linea);
         return 0;
     }
-
     /// <summary>Rescate: si el programa se cerró de golpe mientras tenía silenciado el PC.</summary>
     private static int QuitarSilencio()
     {
@@ -163,7 +194,7 @@ internal static class Cli
         Monitores.Preparado preparado;
         try
         {
-            preparado = eleccion == Monitores.ElMonitorVirtual
+            preparado = MonitorVirtual.NumeroDeNombre(eleccion) is not null
                 ? Monitores.Preparar(eleccion, Console.WriteLine, Mando.LeerModo(Texto(args, "--modo-virtual")))
                 : new Monitores.Preparado(Monitores.Elegir(Numero(args, "--monitor", 0)), () => { });
         }

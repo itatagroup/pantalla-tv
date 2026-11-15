@@ -308,7 +308,7 @@ public class GraficaDelMonitorVirtualTests
         Assert.True(Controlador.EsConfiguracionPropia(propia));
         Assert.True(Controlador.EsConfiguracionPropia(propia.ReplaceLineEndings("\n")));
         Assert.False(Controlador.EsConfiguracionAnterior(propia)); // con los modos de ahora: no hay nada que actualizar
-        Assert.False(Controlador.EsConfiguracionPropia(propia.Replace("<count>1</count>", "<count>2</count>")));
+        Assert.False(Controlador.EsConfiguracionPropia(propia.Replace("<count>4</count>", "<count>2</count>")));
     }
 
     [Fact]

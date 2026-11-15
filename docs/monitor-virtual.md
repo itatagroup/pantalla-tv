@@ -134,6 +134,30 @@ Para fijar otro: **Avanzado › Monitor virtual** (la lista muestra los modos qu
 `ModoMonitorVirtual` de los ajustes). Por línea de comandos: `--monitor virtual --modo-virtual 1280x720@60`. Con una
 configuración de la 0.10 o anterior la lista solo trae dos modos: «Reinstalar» la actualiza.
 
+## Varios monitores virtuales (hasta 4)
+
+Para transmitir a varias teles a la vez, la configuración que escribe Pantalla TV pide `<count>4</count>`: el controlador
+crea 4 salidas «VDD by MTT» con el mismo id de hardware. Una instalación anterior (un solo monitor) se reconoce como
+nuestra y la nota de «Avanzado» invita a «Reinstalar» para tener hasta 4; si la configuración la cambió la persona, no se pisa.
+
+- **Nombres**: `virtual` (el 1), `virtual2`, `virtual3`, `virtual4`, en los ajustes y en `--monitor` (`--cli --monitor virtual2`).
+  Pedir uno que la configuración instalada no tiene (una de 1 monitor) da el error «El monitor virtual 3 no existe: reinstala…».
+- **Orden**: el número sale del orden en que `EnumDisplayDevices` entrega las salidas del controlador, no del `\\.\DISPLAYn`
+  (Windows lo reasigna al reiniciar el dispositivo). **Medido (15/11/2026, portátil AMD + NVIDIA):** las 4 salidas son idénticas
+(mismo EDID) y Windows no las distingue: con el 2 y el 3 conectados, tras reiniciar el dispositivo volvieron conectados **el 1 y
+el 2** (Windows recuerda «dos extendidos» y usa las primeras salidas). O sea, «virtual N» es la N-ésima salida, no un monitor
+con identidad propia; la transmisión la conecta igual, pero tras reiniciar el controlador pueden quedar conectados otros números.
+Conectar el 2 y el 3 seguidos los dejó a la derecha, uno al lado del otro (x = 1920 y 3840), sin encimarse.
+- **Posición**: al conectar, a la derecha de todas las pantallas conectadas, otros virtuales incluidos; no se encimen.
+- **Marcas**: una por salida en `%APPDATA%\PantallaTv\` (`monitor-virtual-conectado.marca` la 1, `monitor-virtual-conectado-N.marca` las
+  demás) con el PID dueño; al arrancar se sueltan las de dueños muertos y al salir las propias. «Duplicar» → «Extender» es de todo
+  Windows: la línea `duplicar` está en una sola marca (la del que hizo el cambio) y, si ese se suelta antes, pasa a la de otro virtual
+  conectado; solo cuando se suelta el último se vuelve a «Duplicar».
+- **Tras instalar**, Windows conecta y extiende solo los 4: se espera a que salgan y se desconectan todos.
+- **CLI**: `--monitor-virtual estado` (lista todos: número, `\\.\DISPLAYn`, conectado o no), `conectar [n]` y `desconectar [n]`
+  (sin `n`, el 1). `--diagnostico` lista todos; su prueba de captura es con el 1.
+- **Estado**: esta parte (controlador, `MonitorVirtual`, `Monitores`, CLI, diagnóstico) está hecha; la ventana y `Mando` con varias
+  transmisiones a la vez son la fase siguiente. No probado con hardware real.
 ## Pendiente
 
 - **Sonido por aplicación** (WASAPI por proceso, Windows 10 2004+): sin hacer.

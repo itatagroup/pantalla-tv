@@ -22,19 +22,61 @@ internal sealed class MonitorVirtual
     /// <summary>Nombre de Windows de la salida del monitor virtual (<c>\\.\DISPLAY6</c>).</summary>
     public string Dispositivo { get; }
 
-    private MonitorVirtual(string dispositivo) => Dispositivo = dispositivo;
+    /// <summary>Cuál de las salidas del controlador es (1..N, ver <see cref="DetectarTodos"/>). Es lo que se escribe en el nombre («virtual2») y en la marca.</summary>
+    public int Numero { get; }
 
-    /// <summary>El monitor virtual, si el controlador está instalado; null si no.</summary>
-    public static MonitorVirtual? Detectar()
+    private MonitorVirtual(string dispositivo, int numero)
     {
+        Dispositivo = dispositivo;
+        Numero = numero;
+    }
+
+    /// <summary>El monitor virtual número 1, si el controlador está instalado; null si no (compatibilidad: es <c>DetectarTodos().FirstOrDefault()</c>).</summary>
+    public static MonitorVirtual? Detectar() => DetectarTodos().FirstOrDefault();
+
+    /// <summary>
+    /// Todas las salidas del controlador (hasta <see cref="Controlador.MonitoresVirtuales"/>), con <see cref="Numero"/> 1..N en el orden
+    /// en que <c>EnumDisplayDevices</c> las entrega. No se ordena por el número de <c>\\.\DISPLAYn</c>: Windows lo reasigna cuando el
+    /// dispositivo se reinicia (reinstalar, mover de gráfica), y el «monitor virtual 2» de la persona pasaría a ser otro. El orden de
+    /// <c>EnumDisplayDevices</c> es el del adaptador (el nodo del controlador) y sus salidas, que sigue el orden en que el controlador las
+    /// crea y no cambia al reiniciarlo (supuesto, no medido: queda por comprobar en un PC con varios).
+    /// </summary>
+    public static IReadOnlyList<MonitorVirtual> DetectarTodos()
+    {
+        var salidas = new List<(string Nombre, string Id)>();
         for (uint i = 0; i < 64; i++)
         {
             var d = Monitores.NuevoDispositivo();
             if (!Monitores.EnumerarDispositivo(null, i, ref d, 0)) break;
-            if (d.Id.Contains(IdControlador, StringComparison.OrdinalIgnoreCase)) return new MonitorVirtual(d.Nombre);
+            salidas.Add((d.Nombre, d.Id));
         }
-        return null;
+        return SalidasDelControlador(salidas).Select((nombre, i) => new MonitorVirtual(nombre, i + 1)).ToList();
     }
+
+    /// <summary>De las salidas que enumera Windows (en su orden), las del controlador, sin cambiar el orden y hasta <see cref="Controlador.MonitoresVirtuales"/>.</summary>
+    internal static List<string> SalidasDelControlador(IEnumerable<(string Nombre, string Id)> salidas) =>
+        salidas.Where(s => s.Id.Contains(IdControlador, StringComparison.OrdinalIgnoreCase)).Select(s => s.Nombre)
+            .Take(Controlador.MonitoresVirtuales).ToList();
+
+    /// <summary>
+    /// El número de monitor virtual que dice un nombre de los ajustes o de la línea de comandos: <c>virtual</c> (1), <c>virtual2</c>,
+    /// <c>virtual3</c>, <c>virtual4</c>; null si no es un nombre de monitor virtual (un nombre de Windows, «virtual0», «virtual5»…).
+    /// </summary>
+    public static int? NumeroDeNombre(string? nombre)
+    {
+        var n = nombre?.Trim();
+        if (string.IsNullOrEmpty(n) || !n.StartsWith(Monitores.ElMonitorVirtual, StringComparison.OrdinalIgnoreCase)) return null;
+        var resto = n[Monitores.ElMonitorVirtual.Length..];
+        if (resto.Length == 0) return 1;
+        return resto.Length == 1 && resto[0] is >= '2' and <= '9' && resto[0] - '0' <= Controlador.MonitoresVirtuales ? resto[0] - '0' : null;
+    }
+
+    /// <summary>El nombre para los ajustes: <c>virtual</c> el 1, <c>virtual2</c>… los demás.</summary>
+    public static string NombreDeNumero(int numero) => numero <= 1 ? Monitores.ElMonitorVirtual : Monitores.ElMonitorVirtual + numero;
+
+    /// <summary>El texto de error cuando se pide un monitor virtual que no existe (la configuración instalada es de menos monitores).</summary>
+    internal static string TextoNoExiste(int numero) =>
+        $"El monitor virtual {numero} no existe: reinstala el monitor virtual en «Avanzado» para tener hasta {Controlador.MonitoresVirtuales}.";
 
     /// <summary>¿Está conectado al escritorio ahora mismo?</summary>
     public bool EstaConectado()
@@ -114,6 +156,15 @@ internal sealed class MonitorVirtual
     /// controlador sin pasarse. Null: 1080p a 60 Hz como siempre.
     /// </param>
     public Resultado Conectar(TimeSpan espera, (int Ancho, int Alto, int Hz)? preferido = null)
+    {
+        // Uno a la vez: la posición se calcula con las pantallas conectadas en ese momento, y dos conexiones en paralelo
+        // (varias transmisiones) leerían el mismo escritorio y quedarían encimadas. Igual con el paso a «Extender».
+        lock (CerrojoConectar) return ConectarUnoAlaVez(espera, preferido);
+    }
+
+    private static readonly object CerrojoConectar = new();
+
+    private Resultado ConectarUnoAlaVez(TimeSpan espera, (int Ancho, int Alto, int Hz)? preferido)
     {
         ModoConectado = null;
         ModoAnterior = null;
@@ -359,7 +410,15 @@ internal sealed class MonitorVirtual
         }
         if (EstaConectado()) return false; // la marca se queda: el próximo arranque lo reintenta
         BorrarMarca();
-        if (volverADuplicar) RestaurarDuplicar();
+        if (volverADuplicar)
+        {
+            // «Duplicar»/«Extender» es de todo Windows: solo se vuelve cuando se suelta el último virtual nuestro. Si queda otro
+            // conectado, la línea «duplicar» se pasa a su marca (si no tiene —lo conectó la persona a mano—, se deja en «Extender»).
+            var otros = DetectarTodos().Where(m => m.Numero != Numero && m.EstaConectado()).ToList();
+            if (otros.Count == 0) RestaurarDuplicar();
+            else if (otros.FirstOrDefault(m => File.Exists(RutaMarcaDe(m.Numero))) is { } heredero) heredero.AnotarDuplicarEnMarca();
+            else Registro.Anotar($"monitor virtual {Dispositivo}: queda otro monitor virtual conectado sin marca nuestra; las pantallas se quedan en «Extender»");
+        }
         _restaurarDuplicar = false;
         return true;
     }
@@ -370,28 +429,43 @@ internal sealed class MonitorVirtual
     /// </summary>
     public static void RecuperarSiQuedoConectado()
     {
-        if (!File.Exists(RutaMarca) || DuenoVivo()) return;
-        var monitor = Detectar();
-        if (monitor is null) BorrarMarca();
-        else monitor.Liberar();
+        var todos = DetectarTodos();
+        for (var n = 1; n <= Controlador.MonitoresVirtuales; n++)
+        {
+            if (!File.Exists(RutaMarcaDe(n)) || DuenoVivo(n)) continue;
+            var monitor = todos.FirstOrDefault(m => m.Numero == n);
+            if (monitor is null) BorrarMarca(n);
+            else monitor.Liberar();
+        }
     }
 
     /// <summary>Lo suelta solo si la marca es de este proceso (al salir, por si la tarea no alcanzó a hacerlo).</summary>
     public static void LiberarSiEsNuestro()
     {
-        if (LeerMarca() == Environment.ProcessId) Detectar()?.Liberar();
+        foreach (var monitor in DetectarTodos())
+            if (LeerMarca(monitor.Numero) == Environment.ProcessId) monitor.Liberar();
     }
 
-    internal static string RutaMarca => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PantallaTv", "monitor-virtual-conectado.marca");
+    /// <summary>La marca del monitor número 1 (como en las versiones con un solo monitor).</summary>
+    internal static string RutaMarca => RutaMarcaDe(1);
 
-    /// <summary>La marca: el PID del dueño y, en una segunda línea, «duplicar» si las pantallas estaban en «Duplicar» y hay que volver.</summary>
-    private static void EscribirMarca(bool duplicado)
+    /// <summary>La marca del monitor <paramref name="numero"/>: <c>monitor-virtual-conectado.marca</c> la 1 y <c>monitor-virtual-conectado-N.marca</c> las demás.</summary>
+    internal static string RutaMarcaDe(int numero) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PantallaTv", NombreDeMarca(numero));
+
+    internal static string NombreDeMarca(int numero) =>
+        numero <= 1 ? "monitor-virtual-conectado.marca" : $"monitor-virtual-conectado-{numero}.marca";
+
+    /// <summary>
+    /// La marca de este monitor: el PID del dueño y, en una segunda línea, «duplicar» si las pantallas estaban en «Duplicar» y hay que
+    /// volver. Solo una marca lleva «duplicar» (la del monitor con que se pasó a «Extender», o su heredera: ver <see cref="Liberar()"/>).
+    /// </summary>
+    private void EscribirMarca(bool duplicado)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(RutaMarca)!);
-            File.WriteAllText(RutaMarca, Environment.ProcessId + (duplicado ? "\n" + MarcaDuplicar : ""));
+            Directory.CreateDirectory(Path.GetDirectoryName(RutaMarcaDe(Numero))!);
+            File.WriteAllText(RutaMarcaDe(Numero), Environment.ProcessId + (duplicado ? "\n" + MarcaDuplicar : ""));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -399,30 +473,46 @@ internal sealed class MonitorVirtual
         }
     }
 
-    /// <summary>Para el comando manual <c>conectar</c>: lo conectado a mano se queda, no es de una transmisión.</summary>
-    public static void OlvidarMarca() => BorrarMarca();
-
-    private static void BorrarMarca()
+    /// <summary>Le pasa a esta marca la línea «duplicar» (conserva el PID que ya tenía).</summary>
+    private void AnotarDuplicarEnMarca()
     {
-        try { File.Delete(RutaMarca); }
+        try
+        {
+            var lineas = LeerLineasMarca(Numero);
+            File.WriteAllText(RutaMarcaDe(Numero), (lineas is { Length: > 0 } ? lineas[0].Trim() : Environment.ProcessId.ToString()) + "\n" + MarcaDuplicar);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // si no se puede, las pantallas se quedan en «Extender»: no se pierde nada más
+        }
+    }
+
+    /// <summary>Para el comando manual <c>conectar</c>: lo conectado a mano se queda, no es de una transmisión.</summary>
+    public void OlvidarMarca() => BorrarMarca(Numero);
+
+    private void BorrarMarca() => BorrarMarca(Numero);
+
+    private static void BorrarMarca(int numero)
+    {
+        try { File.Delete(RutaMarcaDe(numero)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     private const string MarcaDuplicar = "duplicar";
 
-    private static int? LeerMarca() => LeerLineasMarca() is { Length: > 0 } l && int.TryParse(l[0].Trim(), out var pid) ? pid : null;
+    private static int? LeerMarca(int numero) => LeerLineasMarca(numero) is { Length: > 0 } l && int.TryParse(l[0].Trim(), out var pid) ? pid : null;
 
-    private static bool LeerMarcaDuplicado() => LeerLineasMarca() is { Length: > 1 } l && l[1].Trim() == MarcaDuplicar;
+    private bool LeerMarcaDuplicado() => LeerLineasMarca(Numero) is { Length: > 1 } l && l[1].Trim() == MarcaDuplicar;
 
-    private static string[]? LeerLineasMarca()
+    private static string[]? LeerLineasMarca(int numero)
     {
-        try { return File.ReadAllLines(RutaMarca); }
+        try { return File.ReadAllLines(RutaMarcaDe(numero)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
-    private static bool DuenoVivo()
+    private static bool DuenoVivo(int numero)
     {
-        if (LeerMarca() is not { } pid || pid == Environment.ProcessId) return false;
+        if (LeerMarca(numero) is not { } pid || pid == Environment.ProcessId) return false;
         try
         {
             using var otro = System.Diagnostics.Process.GetProcessById(pid);
@@ -434,7 +524,6 @@ internal sealed class MonitorVirtual
             return false; // no existe ese proceso
         }
     }
-
     /// <summary>Posición y tamaño actuales (en píxeles reales) de una salida conectada; null si no se puede leer.</summary>
     internal static Rectangle? LimitesActuales(string dispositivo)
     {
@@ -478,7 +567,10 @@ internal sealed class MonitorVirtual
         return a60.OrderByDescending(m => (long)m.Ancho * m.Alto).First();
     }
 
-    /// <summary>Dónde poner el monitor nuevo: pegado al borde derecho de las pantallas que ya hay, arriba.</summary>
+    /// <summary>
+    /// Dónde poner el monitor nuevo: pegado al borde derecho de todas las pantallas conectadas que ya hay, arriba. Quien llama pasa
+    /// también los otros monitores virtuales ya conectados (<see cref="Conectar"/> solo excluye al propio), para que no se encimen.
+    /// </summary>
     internal static (int X, int Y) PosicionADerecha(IEnumerable<Rectangle> pantallas)
     {
         var lista = pantallas.ToList();

@@ -68,7 +68,7 @@ internal static class Diagnostico
             monitores = Monitores.Listar();
             foreach (var m in monitores)
                 L($"{m.Indice}: {m.Nombre} {m.Ancho}×{m.Alto}{(m.Principal ? " principal" : "")}{(m.Descripcion.Length > 0 ? " · " + m.Descripcion : "")} · adaptador {m.Adaptador} ({m.NombreAdaptador}), salida {m.Salida}");
-            L($"monitor virtual: {Cli.EstadoMonitorVirtual()}");
+            foreach (var linea in Cli.LineasMonitorVirtual()) L(linea);
             L($"topología de pantallas (Win+P): {Topologia.Actual()}");
         }
         catch (Exception e) when (e is not OutOfMemoryException) { L($"No se pudieron listar: {e.Message}"); }
@@ -133,7 +133,11 @@ internal static class Diagnostico
         try
         {
             lineas.Add("controlador: " + DescribirControlador());
-            var virtualMonitor = MonitorVirtual.Detectar();
+            var todosVirtuales = MonitorVirtual.DetectarTodos();
+            lineas.Add($"monitores virtuales: {todosVirtuales.Count} (la prueba de captura es con el 1)");
+            foreach (var otro in todosVirtuales)
+                lineas.Add($"  {otro.Numero}: {otro.Dispositivo}, {(otro.EstaConectado() ? "conectado al escritorio" : "desconectado")}");
+            var virtualMonitor = todosVirtuales.FirstOrDefault();
             if (virtualMonitor is null)
             {
                 lineas.Add("no hay monitor virtual (el controlador no está instalado o Windows no lo muestra): nada que probar");
