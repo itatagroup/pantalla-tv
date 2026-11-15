@@ -8,7 +8,7 @@ namespace PantallaTv.Emisor;
 /// Modo de consola para probar y automatizar sin la bandeja.
 /// <code>
 /// PantallaTv.exe --descubrir [--seg 6]
-/// PantallaTv.exe --cli --ip 10.0.0.20 [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual|virtual2|virtual3|virtual4] [--reconectar]
+/// PantallaTv.exe --cli --ip 10.0.0.20 [--puerto 5600] [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual|virtual2|virtual3|virtual4] [--reconectar]
 ///     (solo con la nativa:) [--latido 30] [--sin-cursor]; --kbps es el tope y --clave, una clave de seguridad (0 = solo a pedido)
 /// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
@@ -229,7 +229,8 @@ internal static class Cli
             + (e.Nativa is { } n ? $"  | nuevos {n.Nuevos} ratón {n.SoloRaton} latidos {n.Latidos} perdidos {n.Perdidos} claves {n.Claves}"
                 + $" captura {Ms(n.LatCapturaMs)} codif {Ms(n.LatCodifMs)} (máx {Ms(n.LatCodifMaxMs)}) reinicios {n.Reinicios}" : ""));
         static string Ms(double? v) => v is { } x ? $"{x:F1} ms" : "n/d";
-        var receptor = new Receptor("TV", dir, Protocolo.PuertoTcp);
+        // --puerto: para receptores en emuladores de Android, cada uno detrás de su «adb forward tcp:N tcp:5600».
+        var receptor = new Receptor("TV", dir, Numero(args, "--puerto", Protocolo.PuertoTcp));
         Func<CancellationToken, Task> ejecutar;
         if (args.Contains("--reconectar"))
         {
