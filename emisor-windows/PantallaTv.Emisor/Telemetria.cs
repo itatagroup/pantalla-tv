@@ -24,10 +24,11 @@ internal sealed class Telemetria : IDisposable
 
     public string Ruta { get; }
 
-    public Telemetria(string carpeta)
+    /// <param name="sufijo">Con varias transmisiones a la vez, lo que distingue el archivo de cada una (si no, chocarían en el mismo segundo).</param>
+    public Telemetria(string carpeta, string? sufijo = null)
     {
         Directory.CreateDirectory(carpeta);
-        Ruta = Path.Combine(carpeta, $"emision-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+        Ruta = Path.Combine(carpeta, $"emision-{DateTime.Now:yyyyMMdd-HHmmss}{(sufijo is null ? "" : "-" + sufijo)}.csv");
         _csv = new StreamWriter(Ruta, false, new UTF8Encoding(true)) { AutoFlush = true };
         _csv.WriteLine(Cabecera);
         _cpuYoAntes = _yo.TotalProcessorTime;

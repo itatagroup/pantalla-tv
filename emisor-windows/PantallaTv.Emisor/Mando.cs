@@ -4,8 +4,8 @@ using System.Net;
 
 namespace PantallaTv.Emisor;
 
-/// <summary>Una de las opciones de una lista del menú o de la ventana.</summary>
-internal sealed record Opcion<T>(string Texto, T Valor, bool Elegida);
+/// <summary>Una de las opciones de una lista del menú o de la ventana (<paramref name="Disponible"/> falso: se ve pero no se puede elegir).</summary>
+internal sealed record Opcion<T>(string Texto, T Valor, bool Elegida, bool Disponible = true);
 
 /// <summary>Las pantallas que se pueden transmitir y si está el monitor virtual (si no, se ofrece instalarlo).</summary>
 internal sealed record Pantallas(IReadOnlyList<Opcion<string?>> Opciones, bool HayVirtual);
@@ -47,10 +47,22 @@ internal sealed partial class Mando : IDisposable
     /// <summary>La pantalla que informó cada tele (receptor 0.8.0+), para ajustar el monitor virtual y los fps.</summary>
     private readonly Func<Receptor, PantallaTele?> _pantallaDe;
     private readonly IDisposable? _propio;
-    private CancellationTokenSource? _cancelar;
-    private Task? _tarea;
-    /// <summary>Número de la transmisión en curso: lo que llega tarde de una anterior no la pisa.</summary>
+    /// <summary>Las transmisiones (se reemplaza entera, nunca se modifica: se lee desde varios hilos).</summary>
+    private Transmision[] _transmisiones = [];
+    private readonly object _cerrojo = new();
+    /// <summary>Número de la última transmisión iniciada (cada una tiene el suyo).</summary>
     private int _numero;
+    private Fase _faseReposo = Fase.Inactivo;
+    private string _estadoReposo = SinTransmitir;
+
+    /// <summary>Cuántas transmisiones puede haber a la vez (una conexión TCP por TV).</summary>
+    public const int MaxTransmisiones = 4;
+
+    /// <summary>Para las pruebas: crea la emisión de cada transmisión (si no, <see cref="EmisionPersistente"/> o <see cref="Emision"/> según el ajuste).</summary>
+    internal Func<IEmision>? FabricaEmision { get; init; }
+
+    /// <summary>Para las pruebas: deja lista la pantalla (si no, <see cref="Monitores.Preparar"/>, que conecta el monitor virtual).</summary>
+    internal Func<string?, Action<string>?, (int Ancho, int Alto, int Hz)?, Monitores.Preparado>? Preparador { get; init; }
 
     /// <param name="tvs">Las TV que se ven en la red ahora (el <see cref="Descubridor"/>).</param>
     /// <param name="propio">Lo que se libera con el mando (el descubridor).</param>
@@ -93,14 +105,51 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Algo que hay que contarle al usuario (el globo de la bandeja). Siempre en el hilo de la interfaz.</summary>
     public event Action<string, ToolTipIcon>? Aviso;
 
-    public Fase Fase { get; private set; } = Fase.Inactivo;
-    public string Estado { get; private set; } = SinTransmitir;
-    public bool Transmitiendo => _tarea is { IsCompleted: false };
+    /// <summary>Las transmisiones, en el orden en que se iniciaron (una fila de la ventana cada una).</summary>
+    public IReadOnlyList<Transmision> Transmisiones => _transmisiones;
+
+    /// <summary>
+    /// El estado de todas juntas (el ícono de la bandeja y la línea de estado): con una sola, el suyo; con varias, el más
+    /// urgente (reconectando, transmitiendo, conectando, error). Sin ninguna, cómo terminó la última.
+    /// </summary>
+    public Fase Fase
+    {
+        get
+        {
+            var ts = _transmisiones;
+            if (ts.Length == 0) return _faseReposo;
+            if (ts.Length == 1) return ts[0].Fase;
+            foreach (var f in new[] { Fase.Reconectando, Fase.Transmitiendo, Fase.Conectando, Fase.Error })
+                if (ts.Any(t => t.Fase == f)) return f;
+            return Fase.Inactivo;
+        }
+    }
+
+    public string Estado
+    {
+        get
+        {
+            var ts = _transmisiones;
+            if (ts.Length == 0) return _estadoReposo;
+            if (ts.Length == 1) return ts[0].Estado;
+            var reconectando = ts.Count(t => t.Fase == Fase.Reconectando);
+            var conectando = ts.Count(t => t.Fase == Fase.Conectando);
+            var errores = ts.Count(t => t.Fase == Fase.Error);
+            return $"{ts.Length} transmisiones"
+                   + (reconectando > 0 ? $", {reconectando} reconectando" : "")
+                   + (conectando > 0 ? $", {conectando} conectando" : "")
+                   + (errores > 0 ? $", {errores} con error" : "");
+        }
+    }
+
+    /// <summary>¿Hay alguna transmisión en curso?</summary>
+    public bool Transmitiendo => _transmisiones.Any(t => t.EnCurso);
     /// <summary>Hay una instalación, reinstalación o desinstalación del monitor virtual en curso (pidiendo UAC).</summary>
     public bool InstalandoControlador { get; private set; }
     private bool _quitandoControlador;
     public bool Diagnosticando { get; private set; }
-    public EnVivo? EnVivo { get; internal set; }
+    /// <summary>Lo de la primera transmisión (compatibilidad: con una sola es «la» transmisión); null si no hay ninguna.</summary>
+    public EnVivo? EnVivo => _transmisiones.FirstOrDefault()?.Vivo;
 
     // ── Ajustes ─────────────────────────────────────────────────────────────────────────────────
 
@@ -182,7 +231,7 @@ internal sealed partial class Mando : IDisposable
             .Select(t => new Opcion<string?>(t is null ? "Automática (recomendada)" : Tuberias.Descripcion(t), t, Ajustes.Tuberia == t))];
 
     private IReadOnlyList<Monitor> _monitores = [];
-    private string? _dispositivoVirtual;
+    private IReadOnlyList<(int Numero, string Dispositivo)> _virtuales = [];
 
     /// <summary>
     /// Vuelve a preguntarle a Windows qué monitores hay (llamadas de enumeración: al abrir el menú, al mostrar la
@@ -191,28 +240,89 @@ internal sealed partial class Mando : IDisposable
     public void ActualizarPantallas()
     {
         _monitores = Monitores.Listar();
-        _dispositivoVirtual = MonitorVirtual.Detectar()?.Dispositivo;
+        _virtuales = [.. MonitorVirtual.DetectarTodos().Select(v => (v.Numero, v.Dispositivo))];
     }
-
-    /// <summary>Las pantallas de la última <see cref="ActualizarPantallas"/>, con la elegida según los ajustes de ahora.</summary>
-    public Pantallas OpcionesPantalla() => ArmarPantallas(_monitores, _dispositivoVirtual, Ajustes.MonitorNombre);
 
     /// <summary>
-    /// Los monitores reales (sin la salida del virtual, que va aparte) y el monitor virtual si está. El virtual
-    /// se conecta al escritorio solo mientras se transmite: listarlo no mueve nada.
+    /// Las pantallas de la última <see cref="ActualizarPantallas"/>. La elegida es la de los ajustes y, si ya se está transmitiendo, la
+    /// primera libre (las que ya van a una TV se ven pero no se pueden elegir).
     /// </summary>
-    internal static Pantallas ArmarPantallas(IReadOnlyList<Monitor> todos, string? dispositivoVirtual, string? elegido)
+    public Pantallas OpcionesPantalla() => ArmarPantallas(_monitores, _virtuales, Ajustes.MonitorNombre, PantallasOcupadas());
+
+    /// <summary>La pantalla con la que empezaría la próxima transmisión: la de los ajustes si está libre, si no la primera libre.</summary>
+    public string? PantallaLibreElegida() =>
+        OpcionesPantalla().Opciones.FirstOrDefault(o => o.Elegida) is { } elegida ? elegida.Valor : Ajustes.MonitorNombre;
+
+    /// <summary>Elige la pantalla de la próxima transmisión. A diferencia de los ajustes de la emisión, se puede mientras se transmite (se lee al empezar cada una).</summary>
+    public void ElegirPantalla(string? valor)
     {
-        var reales = todos.Where(m => dispositivoVirtual is null || !string.Equals(m.Nombre, dispositivoVirtual, StringComparison.OrdinalIgnoreCase)).ToList();
-        var esElVirtual = elegido == Monitores.ElMonitorVirtual && dispositivoVirtual is not null;
-        var real = esElVirtual || reales.Count == 0 ? null : Monitores.Elegir(reales, m => m.Nombre == elegido);
-        var opciones = reales.Select(m => new Opcion<string?>(m.ToString(), m.Nombre, real is not null && m.Indice == real.Indice)).ToList();
-        if (dispositivoVirtual is not null)
-            opciones.Add(new Opcion<string?>("Monitor virtual (se conecta solo al transmitir)", Monitores.ElMonitorVirtual, esElVirtual));
-        return new Pantallas(opciones, dispositivoVirtual is not null);
+        if (Ajustes.MonitorNombre == valor) return;
+        Ajustes.MonitorNombre = valor;
+        Guardar();
     }
 
+    /// <summary>Las pantallas que ya van a una TV (por su clave: nombre de Windows o «virtual2»).</summary>
+    private HashSet<string> PantallasOcupadas() =>
+        new(_transmisiones.Where(t => t.EnCurso).Select(t => t.ClavePantalla), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// La clave con que se compara una pantalla pedida: «virtual», «virtual2»… tal cual; un monitor, su nombre de Windows (si ya no
+    /// está o no se pidió ninguno, el de la principal, que es la que se transmite).
+    /// </summary>
+    private string ClavePantalla(string? nombre)
+    {
+        if (MonitorVirtual.NumeroDeNombre(nombre) is { } n) return MonitorVirtual.NombreDeNumero(n);
+        var monitores = _monitores;
+        if (monitores.Count == 0) return nombre ?? "";
+        return (monitores.FirstOrDefault(m => string.Equals(m.Nombre, nombre, StringComparison.OrdinalIgnoreCase))
+                ?? monitores.FirstOrDefault(m => m.Principal) ?? monitores[0]).Nombre;
+    }
+
+    /// <summary>
+    /// Los monitores reales (sin las salidas de los monitores virtuales, que van aparte con su nombre) y los monitores virtuales
+    /// instalados (hasta 4). Un virtual se conecta al escritorio solo mientras se transmite: listarlo no mueve nada.
+    /// </summary>
+    /// <param name="ocupadas">Las pantallas que ya van a una TV (claves): se ven pero no se pueden elegir.</param>
+    internal static Pantallas ArmarPantallas(IReadOnlyList<Monitor> todos, IReadOnlyList<(int Numero, string Dispositivo)> virtuales,
+        string? elegido, ISet<string>? ocupadas = null)
+    {
+        bool Ocupada(string clave) => ocupadas is not null && ocupadas.Contains(clave);
+        var reales = todos.Where(m => !virtuales.Any(v => string.Equals(m.Nombre, v.Dispositivo, StringComparison.OrdinalIgnoreCase))).ToList();
+        var numeroElegido = MonitorVirtual.NumeroDeNombre(elegido) is { } n && virtuales.Any(v => v.Numero == n) ? n : (int?)null;
+        var real = numeroElegido is not null || reales.Count == 0 ? null : Monitores.Elegir(reales, m => m.Nombre == elegido);
+        var opciones = reales.Select(m => new Opcion<string?>(m.ToString() + (Ocupada(m.Nombre) ? TextoEnUso : ""), m.Nombre,
+            real is not null && m.Indice == real.Indice, !Ocupada(m.Nombre))).ToList();
+        foreach (var v in virtuales.OrderBy(v => v.Numero))
+        {
+            var nombre = MonitorVirtual.NombreDeNumero(v.Numero);
+            opciones.Add(new Opcion<string?>(
+                (v.Numero == 1 ? "Monitor virtual" : $"Monitor virtual {v.Numero}") + " (se conecta solo al transmitir)" + (Ocupada(nombre) ? TextoEnUso : ""),
+                nombre, numeroElegido == v.Numero, !Ocupada(nombre)));
+        }
+        // La elegida ya va a una TV: se propone la primera libre (los ajustes no cambian).
+        var marcada = opciones.FindIndex(o => o.Elegida);
+        if (marcada >= 0 && !opciones[marcada].Disponible)
+        {
+            var libre = opciones.FindIndex(o => o.Disponible);
+            if (libre >= 0)
+            {
+                opciones[marcada] = opciones[marcada] with { Elegida = false };
+                opciones[libre] = opciones[libre] with { Elegida = true };
+            }
+        }
+        return new Pantallas(opciones, virtuales.Count > 0);
+    }
+
+    internal const string TextoEnUso = " · ya se transmite";
+
     public IReadOnlyList<Destino> Destinos() => ArmarDestinos(_tvs(), Ajustes.UltimaIp);
+
+    /// <summary>Las TV que se pueden elegir para una transmisión nueva: las que no tienen ya una.</summary>
+    public IReadOnlyList<Destino> DestinosLibres()
+    {
+        var ocupadas = _transmisiones.Where(t => t.EnCurso).Select(t => t.ClaveTv).ToHashSet();
+        return [.. Destinos().Where(d => !ocupadas.Contains(d.Clave))];
+    }
 
     private string? _avisoRed;
     private DateTime _redLeida = DateTime.MinValue;
@@ -325,13 +435,29 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Transmite a la IP escrita a mano. Devuelve false (y avisa) si no es una IP válida.</summary>
     public bool IniciarConIp(string texto)
     {
-        if (LeerIp(texto) is not { } dir)
+        if (LeerDestino(texto) is not { } destino)
         {
             Aviso?.Invoke("Esa no es una dirección IP válida: escribe cuatro números separados por puntos (por ejemplo 10.0.0.20).", ToolTipIcon.Warning);
             return false;
         }
-        Iniciar(new Receptor("TV", dir, Protocolo.PuertoTcp));
-        return true;
+        return Iniciar(new Receptor("TV", destino.Direccion, destino.Puerto));
+    }
+
+    /// <summary>
+    /// Una IP escrita a mano, con un puerto opcional («10.0.0.20:5602»: un receptor detrás de una redirección, como un emulador de
+    /// Android con <c>adb forward</c>). Sin puerto, el de siempre.
+    /// </summary>
+    internal static (IPAddress Direccion, int Puerto)? LeerDestino(string texto)
+    {
+        texto = texto.Trim();
+        var puerto = Protocolo.PuertoTcp;
+        var dosPuntos = texto.LastIndexOf(':');
+        if (dosPuntos > 0 && texto.IndexOf(':') == dosPuntos) // IPv4 con puerto (una IPv6 tiene varios «:»)
+        {
+            if (!int.TryParse(texto[(dosPuntos + 1)..], out puerto) || puerto is < 1 or > 65535) return null;
+            texto = texto[..dosPuntos];
+        }
+        return LeerIp(texto) is { } dir ? (dir, puerto) : null;
     }
 
     /// <summary>
@@ -345,46 +471,108 @@ internal sealed partial class Mando : IDisposable
         return dir.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && texto.Split('.').Length != 4 ? null : dir;
     }
 
-    public void Iniciar(Receptor receptor)
+    /// <summary>
+    /// Empieza una transmisión a esa TV con la pantalla que toque: la de los ajustes si está libre; si ya va a otra TV, la primera libre.
+    /// Devuelve false (y avisa qué hacer) si no se puede: ver <see cref="MotivoNoPuedeIniciar"/>.
+    /// </summary>
+    public bool Iniciar(Receptor receptor) => Iniciar(receptor, PantallaLibreElegida());
+
+    /// <summary>¿Por qué no se puede empezar esa transmisión (la TV o la pantalla ya están en una, o ya hay 4)? Null si se puede.</summary>
+    public string? MotivoNoPuedeIniciar(Receptor receptor, string? pantalla)
     {
-        if (Transmitiendo) return;
+        var vivas = _transmisiones.Where(t => t.EnCurso).ToList();
+        if (vivas.Count >= MaxTransmisiones)
+            return $"Ya hay {MaxTransmisiones} transmisiones a la vez, que es el máximo. Detén una para empezar otra.";
+        if (vivas.FirstOrDefault(t => t.ClaveTv == ClaveTv(receptor)) is not null)
+            return $"{receptor} ya está recibiendo una transmisión. Elige otra TV o detén esa.";
+        if (vivas.FirstOrDefault(t => string.Equals(t.ClavePantalla, ClavePantalla(pantalla), StringComparison.OrdinalIgnoreCase)) is { } conPantalla)
+            return $"Esa pantalla ya se transmite a {conPantalla.Receptor}. Elige otra pantalla o detén esa transmisión.";
+        return null;
+    }
+
+    /// <summary>¿Por qué no se puede sumar otra transmisión ahora (ya hay 4, o no queda una TV o una pantalla libre)? Null si se puede.</summary>
+    public string? MotivoNoOtra()
+    {
+        if (_transmisiones.Count(t => t.EnCurso) >= MaxTransmisiones)
+            return $"Ya hay {MaxTransmisiones} transmisiones a la vez, que es el máximo. Detén una para empezar otra.";
+        if (DestinosLibres().Count == 0)
+            return "Todas las TV que se ven ya reciben una transmisión. Abre «Pantalla» en otra TV o escribe su IP.";
+        if (!OpcionesPantalla().Opciones.Any(o => o.Disponible) && _monitores.Count > 0)
+            return "Todas las pantallas ya se están transmitiendo. Para más, instala más monitores virtuales en «Avanzado».";
+        return null;
+    }
+
+    private static string ClaveTv(Receptor receptor) => $"{receptor.Direccion}:{receptor.Puerto}";
+
+    /// <summary>Un aviso de una transmisión empieza por la TV a la que se refiere (con varias, si no, no se sabría cuál).</summary>
+    private static string ConTv(Transmision t, string texto) => $"{t.Receptor}: {texto}";
+
+    public bool Iniciar(Receptor receptor, string? pantalla)
+    {
+        if (MotivoNoPuedeIniciar(receptor, pantalla) is { } motivo)
+        {
+            Aviso?.Invoke(motivo, ToolTipIcon.Warning);
+            return false;
+        }
         Ajustes.UltimaIp = receptor.Direccion.ToString();
         Ajustes.Guardar();
+        // Una que quedó con su error a la vista para esa TV o esa pantalla deja su fila a la nueva.
+        var claveTv = ClaveTv(receptor);
+        var clavePantalla = ClavePantalla(pantalla);
+        Quitar(x => x.ClaveTv == claveTv || string.Equals(x.ClavePantalla, clavePantalla, StringComparison.OrdinalIgnoreCase));
 
-        var telemetria = Ajustes.GuardarTelemetria ? new Telemetria(Ajustes.CarpetaTelemetria) : null;
+        var primera = !_transmisiones.Any(x => x.EnCurso);
+        if (primera)
+        {
+            _faseReposo = Fase.Inactivo;
+            _estadoReposo = SinTransmitir;
+        }
+        var a = Ajustes;
+        var numero = ++_numero;
+        var telemetria = a.GuardarTelemetria ? new Telemetria(Ajustes.CarpetaTelemetria, primera ? null : $"tv{numero}") : null;
 
-        _cancelar?.Dispose(); // la anterior ya terminó (Transmitiendo era falso)
-        _cancelar = new CancellationTokenSource();
-        var ct = _cancelar.Token;
+        var cancelar = new CancellationTokenSource();
+        var ct = cancelar.Token;
+        // Solo la primera lleva el sonido (y silencia el PC): dos capturas de audio a la vez no tienen sentido. Si esa se detiene,
+        // las otras siguen sin sonido.
+        var conSonido = primera && a.ConAudio;
+        var t = new Transmision
+        {
+            Numero = numero,
+            Receptor = receptor,
+            Pantalla = pantalla,
+            ClaveTv = ClaveTv(receptor),
+            ClavePantalla = ClavePantalla(pantalla),
+            ConSonido = conSonido,
+            Vivo = new EnVivo { Tv = receptor.ToString(), FpsPedidos = a.Fps },
+            Cancelar = cancelar,
+            Fase = Fase.Conectando, // desde ya: un error de la anterior no debe quedar a la vista mientras empieza esta
+            Estado = $"Conectando con {receptor.Nombre}…",
+        };
 
-        // Todo vuelve por el hilo de la interfaz y solo cuenta si sigue siendo esta transmisión: la tarea termina
-        // (Transmitiendo pasa a falso) antes de que corra lo que dejó posteado, y para entonces pudo empezar otra.
-        var esta = ++_numero;
-        void EnLaInterfaz(Action accion) => _ui.Post(_ => { if (esta == _numero) accion(); }, null);
-        void AlEstado(EstadoEmision e) => EnLaInterfaz(() => AlCambiarEstado(e));
-        void AlNumeros(Estadisticas e) => EnLaInterfaz(() => AlEstadisticas(e));
-        IEmision emision = Ajustes.Reconectar ? new EmisionPersistente() : new Emision();
+        // Todo vuelve por el hilo de la interfaz y solo cuenta si la transmisión sigue en la lista: la tarea termina
+        // (EnCurso pasa a falso) antes de que corra lo que dejó posteado.
+        void EnLaInterfaz(Action accion) => _ui.Post(_ => { if (_transmisiones.Contains(t)) accion(); }, null);
+        void AlEstado(EstadoEmision e) => EnLaInterfaz(() => AlCambiarEstado(t, e));
+        void AlNumeros(Estadisticas e) => EnLaInterfaz(() => AlEstadisticas(t, e));
+        var emision = FabricaEmision?.Invoke() ?? (a.Reconectar ? new EmisionPersistente() : new Emision());
         emision.CambioDeEstado += AlEstado;
         emision.NuevasEstadisticas += AlNumeros;
 
-        var vivo = new EnVivo { Tv = receptor.ToString(), FpsPedidos = Ajustes.Fps };
-        EnVivo = vivo;
-        // Desde ya «conectando»: un error de la anterior no debe quedar a la vista mientras empieza esta.
-        Fase = Fase.Conectando;
-        Estado = $"Conectando con {receptor.Nombre}…";
-        var a = Ajustes;
-        var nombreMonitor = a.MonitorNombre;
+        lock (_cerrojo) _transmisiones = [.. _transmisiones, t];
+        var vivo = t.Vivo;
+        var nombreMonitor = pantalla;
         // El monitor virtual a la medida de la tele: el modo elegido a mano o, si no, el que ella informa.
         var tele = _pantallaDe(receptor);
-        var modoVirtual = LeerModo(a.ModoMonitorVirtual) ?? (tele is { } t ? ModoAutomatico(t) : null);
-        _tarea = Task.Run(async () =>
+        var modoVirtual = LeerModo(a.ModoMonitorVirtual) ?? (tele is { } tl ? ModoAutomatico(tl) : null);
+        t.Tarea = Task.Run(async () =>
         {
             Monitores.Preparado? preparado = null;
             try
             {
                 // Con una preferencia de gráfica de Windows para este programa la captura propia no puede leer las pantallas de
                 // la otra gráfica: se dice ahora y con el arreglo, no solo cuando falle (solo importa si se puede usar la nativa).
-                if (a.Tuberia is null or Tuberias.Nativa
+                if (primera && Preparador is null && a.Tuberia is null or Tuberias.Nativa
                     && Controlador.PreferenciaDeGrafica(Environment.ProcessPath) is { } preferencia // lo normal: ninguna, y no se enumera nada
                     && AvisoPreferenciaDeGrafica(preferencia, Controlador.NombresDeHardware(Controlador.GraficasDelPc()).Count) is { } avisoPreferencia)
                 {
@@ -392,9 +580,10 @@ internal sealed partial class Mando : IDisposable
                     EnLaInterfaz(() => Aviso?.Invoke(avisoPreferencia, ToolTipIcon.Warning));
                 }
                 // Dentro de la tarea: conectar el monitor virtual tarda unos segundos y no debe congelar la interfaz.
-                preparado = Monitores.Preparar(nombreMonitor, m => AlEstado(new EstadoEmision(Fase.Conectando, m)), modoVirtual);
+                Action<string> avisar = m => AlEstado(new EstadoEmision(Fase.Conectando, m));
+                preparado = Preparador is { } preparar ? preparar(nombreMonitor, avisar, modoVirtual) : Monitores.Preparar(nombreMonitor, avisar, modoVirtual);
                 if (preparado.Aviso is { } avisoPantallas)
-                    EnLaInterfaz(() => Aviso?.Invoke(avisoPantallas, ToolTipIcon.Info));
+                    EnLaInterfaz(() => Aviso?.Invoke(ConTv(t, avisoPantallas), ToolTipIcon.Info));
                 var monitor = preparado.Monitor; // en píxeles reales (el programa es consciente del DPI)
                 var esVirtual = Monitores.EsElVirtual(monitor);
                 if (esVirtual)
@@ -411,7 +600,7 @@ internal sealed partial class Mando : IDisposable
                     EnLaInterfaz(() => vivo.FpsPedidos = fps);
                 }
                 var op = new OpcionesEmision(fps, a.Kbps, monitor.Ancho, monitor.Alto, esVirtual, null,
-                    Tuberia: a.Tuberia, ConAudio: a.ConAudio, SilenciarPc: a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre);
+                    Tuberia: a.Tuberia, ConAudio: conSonido, SilenciarPc: conSonido && a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre);
                 await emision.EjecutarAsync(receptor, op, telemetria, ct);
             }
             catch (EmisionException e)
@@ -419,21 +608,54 @@ internal sealed partial class Mando : IDisposable
                 // Los de la transmisión ya se mostraron con CambioDeEstado; este es de antes de empezar.
                 if (preparado is null)
                 {
-                    Registro.Error($"antes de transmitir (pantalla «{nombreMonitor ?? "principal"}»): {e.Message}");
+                    Registro.Error($"antes de transmitir a {receptor} (pantalla «{nombreMonitor ?? "principal"}»): {e.Message}");
                     AlEstado(new EstadoEmision(Fase.Error, e.Message));
                 }
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // Una transmisión que falla de forma inesperada no tumba a las otras.
+                Registro.Error($"transmisión a {receptor}: error inesperado", e);
+                AlEstado(new EstadoEmision(Fase.Error, "La transmisión falló por un error inesperado. Vuelve a empezarla; si se repite, mira el registro (Diagnóstico en «Avanzado»)."));
             }
             finally
             {
                 preparado?.Liberar(); // quita el monitor virtual del escritorio si lo conectamos nosotros
                 telemetria?.Dispose();
-                EnLaInterfaz(Reposar);
+                EnLaInterfaz(() => Reposar(t));
             }
         }, CancellationToken.None);
         Cambio?.Invoke();
+        return true;
     }
 
-    public void Detener() => _cancelar?.Cancel();
+    /// <summary>Detiene todas las transmisiones.</summary>
+    public void Detener()
+    {
+        foreach (var t in _transmisiones) Detener(t);
+    }
+
+    /// <summary>Detiene solo esa; las demás siguen. Si ya terminó (quedó con su error a la vista), la quita de la lista.</summary>
+    public void Detener(Transmision t)
+    {
+        if (!t.EnCurso)
+        {
+            Quitar(x => x == t);
+            return;
+        }
+        try { t.Cancelar?.Cancel(); }
+        catch (ObjectDisposedException) { } // ya terminó y se liberó
+    }
+
+    /// <summary>«Detener» mientras corre; «Quitar» la que terminó con error y sigue a la vista.</summary>
+    public static string TextoBotonFila(Transmision t) => t.EnCurso ? "Detener" : "Quitar";
+
+    /// <summary>Saca de la lista las que ya terminaron y cumplen <paramref name="cual"/>.</summary>
+    private void Quitar(Func<Transmision, bool> cual)
+    {
+        lock (_cerrojo) _transmisiones = [.. _transmisiones.Where(x => x.EnCurso || !cual(x))];
+        Cambio?.Invoke();
+    }
 
     /// <summary>El diagnóstico prueba la captura: mejor no a la vez que una transmisión, ni dos a la vez.</summary>
     public bool PuedeDiagnosticar => !Transmitiendo && !Diagnosticando;
@@ -539,7 +761,7 @@ internal sealed partial class Mando : IDisposable
         Detener();
         try
         {
-            _tarea?.Wait(TimeSpan.FromSeconds(10));
+            Task.WaitAll([.. _transmisiones.Select(t => t.Tarea).OfType<Task>()], TimeSpan.FromSeconds(10));
         }
         catch (AggregateException)
         {
@@ -550,45 +772,61 @@ internal sealed partial class Mando : IDisposable
 
     // ── Lo que llega de la emisión (en el hilo de la interfaz) ──────────────────────────────────
 
-    internal void AlCambiarEstado(EstadoEmision e)
+    internal void AlCambiarEstado(Transmision t, EstadoEmision e)
     {
-        var antes = Fase;
-        Fase = e.Fase;
-        Estado = e.Detalle;
-        if (EnVivo is { } vivo)
-        {
-            if (e.Fase == Fase.Transmitiendo) vivo.Desde ??= DateTime.UtcNow;
-            else vivo.Ultimas = null; // reconectando: los números viejos ya no dicen nada
-        }
+        var antes = t.Fase;
+        t.Fase = e.Fase;
+        t.Estado = e.Detalle;
+        if (e.Fase == Fase.Transmitiendo) t.Vivo.Desde ??= DateTime.UtcNow;
+        else t.Vivo.Ultimas = null; // reconectando: los números viejos ya no dicen nada
+        // Cada aviso dice a qué TV se refiere: con varias transmisiones, si no, no se sabría cuál falló.
         if (e.Fase == Fase.Error)
-            Aviso?.Invoke(e.Detalle, ToolTipIcon.Error);
+            Aviso?.Invoke(ConTv(t, e.Detalle), ToolTipIcon.Error);
         else if (e.Fase == Fase.Inactivo && e.Detalle == Emision.TextoTerminadaPorElReceptor)
-            Aviso?.Invoke(e.Detalle, ToolTipIcon.Info);
+            Aviso?.Invoke(ConTv(t, e.Detalle), ToolTipIcon.Info);
         else if (e.Fase == Fase.Reconectando && antes != Fase.Reconectando)
-            Aviso?.Invoke(antes == Fase.Transmitiendo
+            Aviso?.Invoke(ConTv(t, antes == Fase.Transmitiendo
                     ? "Se cortó la transmisión. Reintentando…"
-                    : "Todavía no hay respuesta de la tele (¿está abierta la app «Pantalla»?). Reintentando…",
+                    : "Todavía no hay respuesta de la tele (¿está abierta la app «Pantalla»?). Reintentando…"),
                 ToolTipIcon.Warning);
         Cambio?.Invoke();
     }
 
-    internal void AlEstadisticas(Estadisticas e)
+    internal void AlEstadisticas(Transmision t, Estadisticas e)
     {
-        if (EnVivo is not { } vivo || Fase != Fase.Transmitiendo) return;
-        vivo.Ultimas = e;
+        if (t.Fase != Fase.Transmitiendo) return;
+        t.Vivo.Ultimas = e;
         Cambio?.Invoke();
     }
 
-    /// <summary>La transmisión terminó. Si fue por un error, su mensaje se queda a la vista.</summary>
-    internal void Reposar()
+    /// <summary>
+    /// Una transmisión terminó y sale de la lista; las otras siguen. Si fue por un error, su mensaje (con la TV) se queda a la vista
+    /// cuando no queda ninguna.
+    /// </summary>
+    internal void Reposar(Transmision t)
     {
-        EnVivo = null;
-        if (Fase != Fase.Error)
+        t.Cancelar?.Dispose();
+        t.Cancelar = null;
+        // Con otras en curso, una que terminó con error se queda en su fila con el motivo (si no, se borraría al instante y solo
+        // quedaría el globo, cortado): sale con «Quitar» o al empezar otra a esa TV o con esa pantalla.
+        if (t.Fase == Fase.Error && _transmisiones.Any(x => x != t && x.EnCurso))
         {
-            Fase = Fase.Inactivo;
-            Estado = SinTransmitir;
+            Cambio?.Invoke();
+            return;
         }
-        AlTerminarTransmision(); // lo de las actualizaciones que esperaba a que no se transmitiera
+        // Sin ninguna en curso: salen todas las que quedaban con error y el último error queda como estado general (como antes).
+        lock (_cerrojo) _transmisiones = [.. _transmisiones.Where(x => x != t && x.EnCurso)];
+        if (t.Fase == Fase.Error)
+        {
+            _faseReposo = Fase.Error;
+            _estadoReposo = t.Estado.StartsWith(t.Receptor.ToString(), StringComparison.Ordinal) ? t.Estado : ConTv(t, t.Estado);
+        }
+        else if (_faseReposo != Fase.Error)
+        {
+            _faseReposo = Fase.Inactivo;
+            _estadoReposo = SinTransmitir;
+        }
+        if (!Transmitiendo) AlTerminarTransmision(); // lo de las actualizaciones que esperaba a que no se transmitiera
         Cambio?.Invoke();
     }
 
@@ -598,6 +836,32 @@ internal sealed partial class Mando : IDisposable
         t.TotalHours >= 1
             ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}"
             : $"{(int)t.TotalMinutes}:{t.Seconds:00}";
+
+    /// <summary>El título de la fila de una transmisión: «TV ← pantalla».</summary>
+    public static string TituloFila(Transmision t) => $"{t.Vivo.Tv} ← {t.Vivo.Pantalla}";
+
+    /// <summary>
+    /// El estado de la fila: conectando, reconectando o el error con su motivo tal cual; transmitiendo, con los cuadros por
+    /// segundo, los Mb/s y el tiempo.
+    /// </summary>
+    public static string EstadoFila(Transmision t) => t.Fase switch
+    {
+        Fase.Transmitiendo => $"Transmitiendo · {TextoFps(t.Vivo.Ultimas)} fps · {TextoMbps(t.Vivo.Ultimas)} Mb/s"
+                              + (t.Vivo.Desde is { } desde ? " · " + TextoTiempo(DateTime.UtcNow - desde) : ""),
+        _ => t.Estado,
+    };
+
+    public const string TextoSinSonido = "sin sonido (solo una transmisión lleva sonido)";
+
+    /// <summary>La nota de la fila: la forma de capturar y, si se pidió el sonido y esta no lo lleva, por qué no. Vacía si no hay nada que decir.</summary>
+    public string NotaFila(Transmision t)
+    {
+        var partes = new List<string>();
+        if (t.Fase == Fase.Transmitiendo && TextoForma(t.Vivo.Ultimas) is var forma && forma != "—") partes.Add(forma);
+        if (!t.ConSonido && Ajustes.ConAudio) partes.Add(TextoSinSonido);
+        else if (t.ConSonido) partes.Add("con sonido");
+        return string.Join(" · ", partes);
+    }
 
     public static string TextoFps(Estadisticas? e) => e is null ? "—" : e.Fps.ToString("0", Es);
 
@@ -638,7 +902,7 @@ internal sealed partial class Mando : IDisposable
     public void Dispose()
     {
         _propio?.Dispose();
-        _cancelar?.Dispose();
+        foreach (var t in _transmisiones) t.Cancelar?.Dispose();
         LiberarActualizaciones();
     }
 }

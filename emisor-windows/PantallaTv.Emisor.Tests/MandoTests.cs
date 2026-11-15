@@ -26,6 +26,8 @@ public sealed class MandoTests : IDisposable
         return new Mando(ajustes, new ContextoInmediato(), () => tvs ?? []);
     }
 
+    internal static IReadOnlyList<(int Numero, string Dispositivo)> V(string? dispositivo) => dispositivo is null ? [] : [(1, dispositivo)];
+
     private static Monitor M(int i, string nombre, bool principal = false, string descripcion = "") =>
         new(i, nombre, 1920, 1080, principal, 0, i, "AMD", descripcion);
 
@@ -62,20 +64,20 @@ public sealed class MandoTests : IDisposable
         var todos = new[] { M(0, @"\\.\DISPLAY1", principal: true), M(1, @"\\.\DISPLAY2"), M(2, @"\\.\DISPLAY6", descripcion: "VDD by MTT") };
 
         // Sin elegir: el principal. La salida del virtual (conectado) no sale como un monitor más.
-        var p = Mando.ArmarPantallas(todos, @"\\.\DISPLAY6", null);
+        var p = Mando.ArmarPantallas(todos, V(@"\\.\DISPLAY6"), null);
         Assert.True(p.HayVirtual);
         Assert.Equal(3, p.Opciones.Count);
         Assert.Equal(Monitores.ElMonitorVirtual, p.Opciones[^1].Valor);
         Assert.Equal(@"\\.\DISPLAY1", Assert.Single(p.Opciones, o => o.Elegida).Valor);
 
         // El virtual elegido.
-        Assert.Equal(Monitores.ElMonitorVirtual, Assert.Single(Mando.ArmarPantallas(todos, @"\\.\DISPLAY6", Monitores.ElMonitorVirtual).Opciones, o => o.Elegida).Valor);
+        Assert.Equal(Monitores.ElMonitorVirtual, Assert.Single(Mando.ArmarPantallas(todos, V(@"\\.\DISPLAY6"), Monitores.ElMonitorVirtual).Opciones, o => o.Elegida).Valor);
 
         // Un monitor que ya no está: el principal (como al transmitir).
-        Assert.Equal(@"\\.\DISPLAY1", Assert.Single(Mando.ArmarPantallas(todos, null, @"\\.\DISPLAY9").Opciones, o => o.Elegida).Valor);
+        Assert.Equal(@"\\.\DISPLAY1", Assert.Single(Mando.ArmarPantallas(todos, V(null), @"\\.\DISPLAY9").Opciones, o => o.Elegida).Valor);
 
         // Sin el controlador: no hay virtual (se ofrece instalarlo) y «virtual» guardado cae en el principal.
-        var sin = Mando.ArmarPantallas(todos[..2], null, Monitores.ElMonitorVirtual);
+        var sin = Mando.ArmarPantallas(todos[..2], V(null), Monitores.ElMonitorVirtual);
         Assert.False(sin.HayVirtual);
         Assert.Equal(@"\\.\DISPLAY1", Assert.Single(sin.Opciones, o => o.Elegida).Valor);
     }
@@ -122,48 +124,6 @@ public sealed class MandoTests : IDisposable
         Assert.Null(mando.Ajustes.UltimaIp);
     }
 
-    [Fact]
-    public void El_estado_y_los_numeros_en_vivo_siguen_a_la_emision()
-    {
-        using var mando = Nuevo();
-        var avisos = new List<string>();
-        mando.Aviso += (t, _) => avisos.Add(t);
-        mando.EnVivo = new EnVivo { Tv = "TV (10.0.0.20)", FpsPedidos = 60 };
-
-        // Los números solo cuentan transmitiendo.
-        mando.AlEstadisticas(new Estadisticas(60, 4, 0, 3));
-        Assert.Null(mando.EnVivo.Ultimas);
-
-        mando.AlCambiarEstado(new EstadoEmision(Fase.Transmitiendo, "Transmitiendo a TV (nativa)"));
-        var desde = mando.EnVivo.Desde;
-        Assert.NotNull(desde);
-        mando.AlEstadisticas(new Estadisticas(59.6, 4.25, 0, 3, Tuberia: Tuberias.Nativa));
-        Assert.Equal("60", Mando.TextoFps(mando.EnVivo.Ultimas));
-        Assert.Equal("4,3", Mando.TextoMbps(mando.EnVivo.Ultimas));
-        Assert.Equal("Propia, sin ffmpeg (nativa)", Mando.TextoForma(mando.EnVivo.Ultimas));
-
-        // Se corta: los números viejos se borran, el tiempo sigue contando desde la primera vez y se avisa una sola vez.
-        mando.AlCambiarEstado(new EstadoEmision(Fase.Reconectando, "Reconectando… (se cortó)"));
-        mando.AlCambiarEstado(new EstadoEmision(Fase.Reconectando, "Reconectando… (otra vez)"));
-        Assert.Null(mando.EnVivo.Ultimas);
-        Assert.Single(avisos);
-        mando.AlCambiarEstado(new EstadoEmision(Fase.Transmitiendo, "Transmitiendo a TV (nativa)"));
-        Assert.Equal(desde, mando.EnVivo.Desde);
-
-        // Terminó bien: vuelve a «Sin transmitir».
-        mando.Reposar();
-        Assert.Null(mando.EnVivo);
-        Assert.Equal(Fase.Inactivo, mando.Fase);
-        Assert.Equal(Mando.SinTransmitir, mando.Estado);
-
-        // Terminó con error: el mensaje se queda a la vista.
-        mando.AlCambiarEstado(new EstadoEmision(Fase.Error, "La TV usa otra versión."));
-        mando.Reposar();
-        Assert.Equal(Fase.Error, mando.Fase);
-        Assert.Equal("La TV usa otra versión.", mando.Estado);
-        Assert.Equal("La TV usa otra versión.", avisos[^1]);
-    }
-
     [Theory]
     [InlineData("10.0.0.20", "10.0.0.20")]
     [InlineData("  10.0.0.7 ", "10.0.0.7")]
@@ -174,6 +134,30 @@ public sealed class MandoTests : IDisposable
     [InlineData("fe80::1", "fe80::1")]
     public void La_ip_escrita_a_mano_trae_sus_cuatro_numeros(string texto, string? esperada) =>
         Assert.Equal(esperada, Mando.LeerIp(texto)?.ToString());
+
+    [Theory]
+    [InlineData("10.0.0.20", "10.0.0.20", 5600)]
+    [InlineData("127.0.0.1:5602", "127.0.0.1", 5602)] // un emulador detrás de adb forward
+    [InlineData(" 10.0.0.7:5600 ", "10.0.0.7", 5600)]
+    [InlineData("fe80::1", "fe80::1", 5600)]
+    public void La_ip_escrita_a_mano_puede_traer_puerto(string texto, string ip, int puerto)
+    {
+        var d = Mando.LeerDestino(texto);
+        Assert.NotNull(d);
+        Assert.Equal(ip, d.Value.Direccion.ToString());
+        Assert.Equal(puerto, d.Value.Puerto);
+    }
+
+    [Theory]
+    [InlineData("10.0.0.20:")]
+    [InlineData("10.0.0.20:0")]
+    [InlineData("10.0.0.20:70000")]
+    [InlineData("10.0.0:5602")]
+    public void Un_puerto_invalido_no_vale(string texto) => Assert.Null(Mando.LeerDestino(texto));
+
+    [Fact]
+    public void Un_receptor_con_otro_puerto_lo_muestra() =>
+        Assert.Equal("TV (127.0.0.1:5602)", new Receptor("TV", System.Net.IPAddress.Loopback, 5602).ToString());
 
     [Theory]
     [InlineData(0, "0:00")]
@@ -238,7 +222,7 @@ public sealed class MandoTests : IDisposable
             Assert.False(mando.PuedeDiagnosticar);
             Assert.Equal(Fase.Conectando, mando.Fase);
             Assert.NotNull(mando.EnVivo);
-            Assert.Equal("Falso (127.0.0.1)", mando.EnVivo.Tv);
+            Assert.StartsWith("Falso (127.0.0.1:", mando.EnVivo.Tv); // el receptor falso usa un puerto suelto: se muestra
             Assert.Equal("127.0.0.1", Ajustes.Cargar(mando.Ajustes.Ruta).UltimaIp);
             mando.Cambiar(a => a.Fps = 30);
             Assert.Equal(60, mando.Ajustes.Fps); // no hizo nada

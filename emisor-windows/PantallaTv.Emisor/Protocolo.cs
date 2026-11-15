@@ -19,7 +19,8 @@ internal sealed record PantallaTele(int Ancho, int Alto, int Hz, string Tipo)
 
 internal sealed record Receptor(string Nombre, IPAddress Direccion, int Puerto)
 {
-    public override string ToString() => $"{Nombre} ({Direccion})";
+    /// <summary>Con un puerto que no es el de siempre (un receptor detrás de una redirección), se muestra: si no, dos se verían iguales.</summary>
+    public override string ToString() => Puerto == Protocolo.PuertoTcp ? $"{Nombre} ({Direccion})" : $"{Nombre} ({Direccion}:{Puerto})";
 }
 
 /// <summary>Constantes y armado de mensajes del protocolo (ver docs/protocolo.md). Enteros en big-endian.</summary>
