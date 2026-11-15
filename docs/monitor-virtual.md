@@ -214,7 +214,19 @@ Qué pasa con el plan del codificador en ese portátil (se ve en el registro):
   0 tirados, 0 reinicios, codificador 19,5 ms de media, 0,7–0,9 Mb/s, ~0,4 núcleos (copia por CPU incluida).
 - `MFTEnum2` con `MFT_ENUM_ADAPTER_LUID` **no filtra** en ese PC: devuelve las dos MFT para cualquier gráfica.
 - La AMD 760M **no retiene** cuadros (la del PC de pruebas sí): el detector lo vio solo.
-- No se probó el paso «Duplicar» → «Extender» (el portátil ya estaba en «Extender»).
+- **La MFT de NVIDIA solo se crea si Windows asigna el proceso a la NVIDIA** (Configuración → Pantalla → Gráficos →
+  «Alto rendimiento»). Con esa preferencia el virtual codifica en la NVIDIA sin copia (≈ 0,1 núcleos, pero 52–55 fps,
+  25 ms, retiene un cuadro), la MFT de AMD deja de crearse (`E_OUTOFMEMORY`) y **la duplicación del principal falla**
+  (`DXGI_ERROR_UNSUPPORTED`: Desktop Duplication tiene que correr en la gráfica que dibuja el monitor), así que el
+  principal cae a `amf-gpu`. Sin preferencia (lo normal) la nativa sirve en los dos monitores: **no hay que pedírsela
+  a nadie**. Usar las dos gráficas a la vez necesitaría un proceso aparte por gráfica.
+
+**«Duplicar» → «Extender», probado:** con el virtual conectado se puso «Duplicar» (como Win+P) y se desconectó; Windows
+siguió diciendo «Duplicar» (`QDC_DATABASE_CURRENT` lo ve). Al transmitir al virtual el emisor pasó a «Extender», conectó
+y transmitió con la nativa (64–65 fps, 0 tirados). **Al terminar no vuelve a «Duplicar»** si solo hay una pantalla física:
+al quitar el virtual Windows dice «solo la pantalla del PC» y `RestaurarDuplicar` lo toma como un cambio de la persona.
+Queda guardado «Extender» para la pareja pantalla + virtual (la próxima vez no hace falta cambiar nada). Con un monitor
+externo duplicado sí volvería (no probado).
 
 ## Velocidad y búfer
 
