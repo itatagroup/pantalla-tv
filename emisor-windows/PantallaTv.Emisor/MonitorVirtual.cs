@@ -60,6 +60,27 @@ internal sealed class MonitorVirtual
     /// <summary>El modo con que quedó conectado en el último <see cref="Conectar"/> (null si ya estaba o falló).</summary>
     public (int Ancho, int Alto, int Hz)? ModoConectado { get; private set; }
 
+    /// <summary>
+    /// Si <see cref="Conectar"/> dejó el monitor en otro modo que el que tenía (ya estaba conectado, por ejemplo porque
+    /// Windows lo puso en su primer modo, 3840×2160), el que tenía antes: <see cref="RestaurarModoAnterior"/> lo devuelve.
+    /// </summary>
+    public (int Ancho, int Alto, int Hz)? ModoAnterior { get; private set; }
+
+    /// <summary>Qué se hizo con las pantallas para poder conectarlo (se pasó de «Duplicar» a «Extender»), para mostrárselo a la persona; null si nada.</summary>
+    public string? AvisoTopologia { get; private set; }
+
+    /// <summary>Por qué falló el último <see cref="Conectar"/>, en palabras para la persona; null si no hay un motivo más preciso.</summary>
+    public string? Motivo { get; private set; }
+
+    /// <summary>Se pasó de «Duplicar» a «Extender» para conectarlo: al soltarlo se vuelve a «Duplicar».</summary>
+    private bool _restaurarDuplicar;
+
+    /// <summary>El texto que explica el paso de «Duplicar» a «Extender».</summary>
+    internal const string TextoPasoAExtender =
+        "Las pantallas estaban en «Duplicar» y Windows no deja agregar el monitor virtual así: se pasaron a «Extender» "
+        + "mientras se transmite y vuelven a «Duplicar» al terminar. Para ver en la tele el mismo monitor que ves en el PC, "
+        + "desmarca el monitor virtual en «Qué pantalla se transmite».";
+
     /// <summary>Los modos que ofrece el controlador (los de su configuración), sin repetir, del mayor al menor.</summary>
     public IReadOnlyList<(int Ancho, int Alto, int Hz)> ModosOfrecidos() =>
         LeerModos().Select(m => (Ancho: m.PelsWidth, Alto: m.PelsHeight, Hz: m.DisplayFrequency)).Distinct()
@@ -84,7 +105,14 @@ internal sealed class MonitorVirtual
     public Resultado Conectar(TimeSpan espera, (int Ancho, int Alto, int Hz)? preferido = null)
     {
         ModoConectado = null;
-        if (EstaConectado()) return Resultado.YaEstaba;
+        ModoAnterior = null;
+        AvisoTopologia = null;
+        Motivo = null;
+        if (EstaConectado())
+        {
+            AjustarModoDelConectado(preferido);
+            return Resultado.YaEstaba;
+        }
 
         var todos = LeerModos();
         var modos = todos.Select(m => (Ancho: m.PelsWidth, Alto: m.PelsHeight, Hz: m.DisplayFrequency)).ToList();
@@ -105,7 +133,11 @@ internal sealed class MonitorVirtual
         modo.PositionY = y;
         modo.Fields = CampoPosicion | CampoBits | CampoAncho | CampoAlto | CampoFrecuencia;
 
-        EscribirMarca();
+        // Con «Duplicar» Windows rechaza conectar el monitor (ChangeDisplaySettingsEx -1): se pasa a «Extender», como Win+P,
+        // y al soltarlo se vuelve. La marca ya dice que hay que volver, por si el proceso muere antes.
+        var duplicado = Topologia.HayQuePasarAExtender(Topologia.Actual());
+        EscribirMarca(duplicado);
+        if (duplicado && !PasarAExtender()) return Abandonar();
         var cambio = ChangeDisplaySettingsEx(Dispositivo, ref modo, IntPtr.Zero, ActualizarRegistro | SinReiniciar, IntPtr.Zero);
         var aplicar = cambio == 0 ? AplicarCambios() : 0;
         if (cambio != 0 || aplicar != 0)
@@ -113,6 +145,7 @@ internal sealed class MonitorVirtual
             // Los códigos son los DISP_CHANGE_* de Windows (-1 falló, -2 modo no soportado, -6 el controlador no
             // pudo, 1 hace falta reiniciar…).
             Registro.Error($"monitor virtual {Dispositivo}: Windows no aceptó el cambio de pantalla (ChangeDisplaySettingsEx {cambio}, aplicar {aplicar})");
+            Motivo = "Windows no aceptó conectar el monitor virtual. Pruébalo en Configuración → Pantalla.";
             return Abandonar();
         }
 
@@ -125,6 +158,9 @@ internal sealed class MonitorVirtual
                 && Dxgi.Salidas().Any(s => EsEste(s.Dispositivo)))
             {
                 ModoConectado = elegido;
+                // Lo que quedó de verdad: si Windows no lo respetó, el vídeo saldría de otro tamaño que el pedido.
+                if (LimitesActuales(Dispositivo) is { } r && (r.Width, r.Height) != (elegido.Value.Ancho, elegido.Value.Alto))
+                    Registro.Error($"monitor virtual {Dispositivo}: se pidió {elegido.Value.Ancho}×{elegido.Value.Alto} y quedó en {r.Width}×{r.Height}");
                 return Resultado.Conectado;
             }
             Thread.Sleep(250);
@@ -134,6 +170,89 @@ internal sealed class MonitorVirtual
         Registro.Error($"monitor virtual {Dispositivo}: no apareció en {espera.TotalSeconds:0} s (en el escritorio: {EstaConectado()}, "
                        + $"como pantalla: {Monitores.Pantallas().Any(p => EsEste(p.Nombre))}, en DXGI: {Dxgi.Salidas().Any(s => EsEste(s.Dispositivo))})");
         return Abandonar();
+    }
+
+    /// <summary>Pasa de «Duplicar» a «Extender». Si no se puede, deja el motivo y devuelve false.</summary>
+    private bool PasarAExtender()
+    {
+        var error = Topologia.PasarA(TopologiaPantalla.Extender);
+        if (error != 0)
+        {
+            Registro.Error($"monitor virtual {Dispositivo}: no se pudo pasar de «Duplicar» a «Extender» ({Topologia.Explicar(error)})");
+            Motivo = "Las pantallas están en «Duplicar» y Windows no deja agregar el monitor virtual así. No se pudo pasar a «Extender» solo "
+                     + $"({Topologia.Explicar(error)}): hazlo con Win+P → Extender y vuelve a transmitir.";
+            EscribirMarca(duplicado: false); // no cambió nada: no hay a qué volver
+            return false;
+        }
+        _restaurarDuplicar = true;
+        AvisoTopologia = TextoPasoAExtender;
+        Registro.Anotar($"monitor virtual {Dispositivo}: las pantallas estaban en «Duplicar»; se pasó a «Extender» (se vuelve al terminar)");
+        // SetDisplayConfig vuelve cuando lo aplicó; por si Windows tarda un instante en reflejarlo.
+        var limite = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (Topologia.Actual() == TopologiaPantalla.Duplicar && DateTime.UtcNow < limite) Thread.Sleep(100);
+        return true;
+    }
+
+    /// <summary>Al soltar: vuelve a «Duplicar» si lo cambiamos y la persona no lo tocó mientras tanto.</summary>
+    private static void RestaurarDuplicar()
+    {
+        if (Topologia.Actual() != TopologiaPantalla.Extender) return; // ya la cambió la persona: se respeta
+        var error = Topologia.PasarA(TopologiaPantalla.Duplicar);
+        if (error == 0) Registro.Anotar("monitor virtual: las pantallas vuelven a «Duplicar»");
+        else Registro.Error($"monitor virtual: no se pudo volver a «Duplicar» ({Topologia.Explicar(error)})");
+    }
+
+    /// <summary>
+    /// El monitor ya estaba conectado (lo conectó la persona, o Windows al instalar el controlador: lo deja en el primer
+    /// modo del controlador, 3840×2160, que ningún codificador aceptó en un portátil con dos gráficas): se le pone el modo
+    /// pedido, sin moverlo. Lo que tenía queda en <see cref="ModoAnterior"/>; <see cref="ModoConectado"/> dice cómo quedó.
+    /// </summary>
+    private void AjustarModoDelConectado((int Ancho, int Alto, int Hz)? preferido)
+    {
+        var actual = Modo.Nuevo();
+        if (!EnumDisplaySettings(Dispositivo, -1, ref actual)) return;
+        var antes = (Ancho: actual.PelsWidth, Alto: actual.PelsHeight, Hz: actual.DisplayFrequency);
+        var todos = LeerModos();
+        var elegido = ElegirModo(todos.Select(m => (Ancho: m.PelsWidth, Alto: m.PelsHeight, Hz: m.DisplayFrequency)), preferido);
+        ModoConectado = antes;
+        if (elegido is not { } e || !NecesitaCambioDeModo(antes, e))
+        {
+            Registro.Anotar($"monitor virtual {Dispositivo}: ya estaba conectado a {antes.Ancho}×{antes.Alto}@{antes.Hz}"
+                            + (elegido is null ? " (el controlador no ofrece un modo mejor)" : ""));
+            return;
+        }
+        var modo = todos.First(m => m.PelsWidth == e.Ancho && m.PelsHeight == e.Alto && m.DisplayFrequency == e.Hz);
+        modo.Fields = CampoBits | CampoAncho | CampoAlto | CampoFrecuencia; // sin posición: no se mueve
+        var cambio = ChangeDisplaySettingsEx(Dispositivo, ref modo, IntPtr.Zero, ActualizarRegistro | SinReiniciar, IntPtr.Zero);
+        var aplicar = cambio == 0 ? AplicarCambios() : 0;
+        var ahora = LimitesActuales(Dispositivo);
+        if (cambio != 0 || aplicar != 0 || ahora is null || (ahora.Value.Width, ahora.Value.Height) != (e.Ancho, e.Alto))
+        {
+            Registro.Error($"monitor virtual {Dispositivo}: ya estaba conectado a {antes.Ancho}×{antes.Alto}@{antes.Hz} y no se pudo pasar a "
+                           + $"{e.Ancho}×{e.Alto}@{e.Hz} (ChangeDisplaySettingsEx {cambio}, aplicar {aplicar}); se transmite como está");
+            return;
+        }
+        ModoAnterior = antes;
+        ModoConectado = e;
+        Registro.Anotar($"monitor virtual {Dispositivo}: ya estaba conectado a {antes.Ancho}×{antes.Alto}@{antes.Hz}; pasó a {e.Ancho}×{e.Alto}@{e.Hz}");
+    }
+
+    /// <summary>¿Hay que cambiar el modo de un monitor ya conectado? Sí si el tamaño o la frecuencia no son los elegidos.</summary>
+    internal static bool NecesitaCambioDeModo((int Ancho, int Alto, int Hz) actual, (int Ancho, int Alto, int Hz) elegido) =>
+        actual != elegido;
+
+    /// <summary>Devuelve el modo que tenía el monitor antes de <see cref="Conectar"/> (solo si lo cambió).</summary>
+    public void RestaurarModoAnterior()
+    {
+        if (ModoAnterior is not { } a) return;
+        ModoAnterior = null;
+        var modo = LeerModos().FirstOrDefault(m => m.PelsWidth == a.Ancho && m.PelsHeight == a.Alto && m.DisplayFrequency == a.Hz);
+        if (modo.Size == 0 || !EstaConectado()) return;
+        modo.Fields = CampoBits | CampoAncho | CampoAlto | CampoFrecuencia;
+        var cambio = ChangeDisplaySettingsEx(Dispositivo, ref modo, IntPtr.Zero, ActualizarRegistro | SinReiniciar, IntPtr.Zero);
+        var aplicar = cambio == 0 ? AplicarCambios() : 0;
+        if (cambio != 0 || aplicar != 0)
+            Registro.Error($"monitor virtual {Dispositivo}: no se pudo devolver el modo {a.Ancho}×{a.Alto}@{a.Hz} ({cambio}, {aplicar})");
     }
 
     private bool EsEste(string nombre) => string.Equals(nombre, Dispositivo, StringComparison.OrdinalIgnoreCase);
@@ -166,6 +285,7 @@ internal sealed class MonitorVirtual
 
     internal bool Liberar(TimeSpan espera, TimeSpan quieto)
     {
+        var volverADuplicar = _restaurarDuplicar || LeerMarcaDuplicado();
         var limite = DateTime.UtcNow + espera;
         var desde = DateTime.UtcNow;
         while (DateTime.UtcNow < limite)
@@ -183,6 +303,8 @@ internal sealed class MonitorVirtual
         }
         if (EstaConectado()) return false; // la marca se queda: el próximo arranque lo reintenta
         BorrarMarca();
+        if (volverADuplicar) RestaurarDuplicar();
+        _restaurarDuplicar = false;
         return true;
     }
 
@@ -207,12 +329,13 @@ internal sealed class MonitorVirtual
     internal static string RutaMarca => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PantallaTv", "monitor-virtual-conectado.marca");
 
-    private static void EscribirMarca()
+    /// <summary>La marca: el PID del dueño y, en una segunda línea, «duplicar» si las pantallas estaban en «Duplicar» y hay que volver.</summary>
+    private static void EscribirMarca(bool duplicado)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(RutaMarca)!);
-            File.WriteAllText(RutaMarca, Environment.ProcessId.ToString());
+            File.WriteAllText(RutaMarca, Environment.ProcessId + (duplicado ? "\n" + MarcaDuplicar : ""));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -229,9 +352,15 @@ internal sealed class MonitorVirtual
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
-    private static int? LeerMarca()
+    private const string MarcaDuplicar = "duplicar";
+
+    private static int? LeerMarca() => LeerLineasMarca() is { Length: > 0 } l && int.TryParse(l[0].Trim(), out var pid) ? pid : null;
+
+    private static bool LeerMarcaDuplicado() => LeerLineasMarca() is { Length: > 1 } l && l[1].Trim() == MarcaDuplicar;
+
+    private static string[]? LeerLineasMarca()
     {
-        try { return int.TryParse(File.ReadAllText(RutaMarca), out var pid) ? pid : null; }
+        try { return File.ReadAllLines(RutaMarca); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 

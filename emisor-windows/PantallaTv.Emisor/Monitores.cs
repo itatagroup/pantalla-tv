@@ -140,7 +140,8 @@ internal static class Monitores
 
     /// <summary>Un monitor listo para transmitir y, si hubo que conectar el virtual, cómo quitarlo al terminar.</summary>
     /// <param name="Hz">Los Hz del monitor virtual recién conectado (para no mandar más cuadros que eso); null si no se sabe.</param>
-    internal sealed record Preparado(Monitor Monitor, Action Liberar, int? Hz = null);
+    /// <param name="Aviso">Algo que se hizo con las pantallas y la persona tiene que saber (se pasó de «Duplicar» a «Extender»); null si nada.</param>
+    internal sealed record Preparado(Monitor Monitor, Action Liberar, int? Hz = null, string? Aviso = null);
 
     /// <summary>
     /// ¿Es el monitor virtual? Se usa como segundo monitor de trabajo, donde medio segundo se nota en el ratón: la
@@ -168,17 +169,22 @@ internal static class Monitores
         avisar?.Invoke("Conectando el monitor virtual…");
         var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20), modoVirtual);
         if (resultado == MonitorVirtual.Resultado.Fallo)
-            throw new EmisionException("No se pudo conectar el monitor virtual a Windows. Pruébalo en Configuración → Pantalla.");
+            throw new EmisionException(virtualMonitor.Motivo ?? "No se pudo conectar el monitor virtual a Windows. Pruébalo en Configuración → Pantalla.");
         var monitor = Listar().FirstOrDefault(m => string.Equals(m.Nombre, virtualMonitor.Dispositivo, StringComparison.OrdinalIgnoreCase));
         if (monitor is null)
         {
-            if (resultado == MonitorVirtual.Resultado.Conectado) virtualMonitor.Liberar();
+            Soltar(virtualMonitor, resultado);
             throw new EmisionException("Windows conectó el monitor virtual pero no aparece en la lista de pantallas.");
         }
-        return new Preparado(monitor, () =>
-        {
-            if (resultado == MonitorVirtual.Resultado.Conectado) virtualMonitor.Liberar();
-        }, virtualMonitor.ModoConectado?.Hz);
+        if (virtualMonitor.AvisoTopologia is { } aviso) avisar?.Invoke(aviso);
+        return new Preparado(monitor, () => Soltar(virtualMonitor, resultado), virtualMonitor.ModoConectado?.Hz, virtualMonitor.AvisoTopologia);
+    }
+
+    /// <summary>Lo deja como estaba: lo quita si lo conectamos nosotros (y vuelve a «Duplicar» si lo cambiamos); si ya estaba, solo devuelve su modo.</summary>
+    private static void Soltar(MonitorVirtual monitor, MonitorVirtual.Resultado resultado)
+    {
+        if (resultado == MonitorVirtual.Resultado.Conectado) monitor.Liberar();
+        else monitor.RestaurarModoAnterior();
     }
 
     /// <summary>El monitor con ese nombre de Windows o, si ya no existe (se desconectó), el principal.</summary>

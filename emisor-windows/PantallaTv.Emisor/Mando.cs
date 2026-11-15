@@ -353,6 +353,8 @@ internal sealed partial class Mando : IDisposable
             {
                 // Dentro de la tarea: conectar el monitor virtual tarda unos segundos y no debe congelar la interfaz.
                 preparado = Monitores.Preparar(nombreMonitor, m => AlEstado(new EstadoEmision(Fase.Conectando, m)), modoVirtual);
+                if (preparado.Aviso is { } avisoPantallas)
+                    EnLaInterfaz(() => Aviso?.Invoke(avisoPantallas, ToolTipIcon.Info));
                 var monitor = preparado.Monitor; // en píxeles reales (el programa es consciente del DPI)
                 var esVirtual = Monitores.EsElVirtual(monitor);
                 EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"Monitor virtual · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
