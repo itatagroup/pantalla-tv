@@ -307,7 +307,7 @@ internal sealed class Emision : IEmision
             Registro.Anotar($"tubería {nombre} descartada: {motivo}");
         }
         if (rutaFfmpeg is null && Fuentes is null && op.Tuberia is null)
-            fallos.Add("las de ffmpeg (respaldo): no está instalado");
+            fallos.Add("las de ffmpeg (respaldo): no está instalado (en «Avanzado» se puede descargar)");
         throw new EmisionException("Ninguna forma de capturar la pantalla funcionó en este PC. " + string.Join(" · ", fallos));
     }
 

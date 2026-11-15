@@ -145,9 +145,16 @@ internal sealed class FuenteFfmpeg(string nombre, string ruta, OpcionesEmision o
     }
 }
 
-/// <summary>Busca ffmpeg junto al programa o en el PATH. Desde el 0.7.0 es opcional: solo lo usan las tuberías de respaldo.</summary>
+/// <summary>
+/// Busca ffmpeg junto al programa, en la carpeta de datos (donde lo deja <see cref="DescargadorFfmpeg"/>) o en el PATH. Desde
+/// el 0.7.0 es opcional: solo lo usan las tuberías de respaldo.
+/// </summary>
 internal static class Ffmpeg
 {
+    /// <summary>Donde deja ffmpeg la descarga automática: <c>%LocalAppData%\PantallaTv\ffmpeg</c> (se puede escribir sin permisos de administrador).</summary>
+    public static string CarpetaDatos => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PantallaTv", "ffmpeg");
+
     /// <summary>La ruta de ffmpeg.exe, o null si no está.</summary>
     /// <exception cref="EmisionException">Se dio una ruta y no existe.</exception>
     public static string? Buscar(string? ruta)
@@ -157,6 +164,8 @@ internal static class Ffmpeg
 
         var junto = Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe");
         if (File.Exists(junto)) return junto;
+        var descargado = Path.Combine(CarpetaDatos, "ffmpeg.exe");
+        if (File.Exists(descargado)) return descargado;
 
         foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
         {
@@ -167,5 +176,5 @@ internal static class Ffmpeg
         return null;
     }
 
-    public const string NoEsta = "No encuentro ffmpeg.exe: ponlo junto a PantallaTv.exe o en el PATH (winget install Gyan.FFmpeg).";
+    public const string NoEsta = "No encuentro ffmpeg.exe: en «Avanzado» puedes descargarlo (Descargar ffmpeg), o ponlo junto a PantallaTv.exe o en el PATH (winget install Gyan.FFmpeg).";
 }
