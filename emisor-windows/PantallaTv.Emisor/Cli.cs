@@ -86,7 +86,12 @@ internal static class Cli
         {
             var r = v.Conectar(TimeSpan.FromSeconds(20));
             Console.WriteLine($"conectar: {r}");
-            if (r == MonitorVirtual.Resultado.Fallo) return 3;
+            if (v.AvisoTopologia is { } aviso) Console.WriteLine(aviso);
+            if (r == MonitorVirtual.Resultado.Fallo)
+            {
+                if (v.Motivo is { } motivo) Console.Error.WriteLine(motivo);
+                return 3;
+            }
             MonitorVirtual.OlvidarMarca(); // conectado a mano: que el próximo arranque no lo quite
         }
         else if (orden == "desconectar")

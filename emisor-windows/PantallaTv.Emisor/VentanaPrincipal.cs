@@ -69,6 +69,8 @@ internal sealed class VentanaPrincipal : Form
     private readonly Boton _abrirTelemetria = new() { Text = "Abrir carp&eta de telemetría", Estilo = EstiloBoton.Secundario };
     private readonly Boton _diagnostico = new() { Text = "Diag&nóstico para enviar…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaDiagnostico = new() { UseMnemonic = false };
+    private readonly Boton _ffmpeg = new() { Text = "Descargar ff&mpeg…", Estilo = EstiloBoton.Secundario };
+    private readonly Label _notaFfmpeg = new() { UseMnemonic = false };
     private readonly Label _notaBloqueoAvanzado = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
     private readonly Boton _buscarAhora = new() { Text = "B&uscar actualizaciones", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaActualizaciones = new() { UseMnemonic = false };
@@ -117,14 +119,14 @@ internal sealed class VentanaPrincipal : Form
         _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _notaModoVirtual,
             _reinstalarVirtual, _quitarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
-            _buscarAhora, _notaActualizaciones]);
+            _ffmpeg, _notaFfmpeg, _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
         OrdenTab(_actualizar, _despues);
         OrdenTab(_etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _buscarAhora);
+        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
         foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _etiquetaModoVirtual, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
@@ -147,6 +149,7 @@ internal sealed class VentanaPrincipal : Form
         _expansor.Click += (_, _) => { _abierto = !_abierto; Refrescar(); if (_abierto) _contenido.ScrollControlIntoView(_avanzado); };
         _abrirTelemetria.Click += (_, _) => Mando.AbrirTelemetria();
         _diagnostico.Click += (_, _) => _mando.Diagnosticar();
+        _ffmpeg.Click += (_, _) => AlPulsarFfmpeg();
         _actualizar.Click += (_, _) => _mando.ActualizarAhora();
         _despues.Click += (_, _) => _mando.PosponerActualizacion();
         _buscarAhora.Click += (_, _) => _mando.BuscarActualizacionesAhora();
@@ -337,6 +340,7 @@ internal sealed class VentanaPrincipal : Form
             _notaActualizaciones.Text = m.EstadoActualizaciones ??
                 $"Solo cuando lo pulsas: mira en GitHub si hay una versión publicada, sin enviar nada. Versión instalada: {Instalacion.Version}.";
 
+            if (_abierto) RefrescarFfmpeg(m);
             _diagnostico.Enabled = m.PuedeDiagnosticar;
             _notaDiagnostico.Text = m.Diagnosticando ? "Preparando el diagnóstico (unos segundos)…"
                 : transmitiendo ? "Detén la transmisión para hacer el diagnóstico: prueba la captura."
@@ -363,7 +367,7 @@ internal sealed class VentanaPrincipal : Form
     {
         var clave = string.Join("|", DeviceDpi, _abierto, _vivo.Visible, _estado.Text, _vivoValores[0].Text, _vivoValores[1].Text,
             _vivoValores[5].Text, _pantallas.Controls.Count, _instalarVirtual.Text, _notaDiagnostico.Text,
-            _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text, _notaModoVirtual.Text, _modoVirtual.Visible, _quitarVirtual.Visible, _notaTvs.Text, _abrirRed.Visible,
+            _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text, _notaModoVirtual.Text, _ffmpeg.Visible, _ffmpeg.Text, _notaFfmpeg.Text, _modoVirtual.Visible, _quitarVirtual.Visible, _notaTvs.Text, _abrirRed.Visible,
             string.Concat(Notas().Select(n => n.Visible ? "1" : "0")));
         if (clave == _distribucion) return;
         _distribucion = clave;
@@ -438,7 +442,7 @@ internal sealed class VentanaPrincipal : Form
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual];
+        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual, _notaFfmpeg];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -589,6 +593,14 @@ internal sealed class VentanaPrincipal : Form
             cy += altoBoton;
             cy = Nota(_notaDiagnostico, relleno + mitad + S(8), cy + S(6), interior - mitad - S(8));
             cy += S(14);
+            var anchoFfmpeg = TextRenderer.MeasureText(_ffmpeg.Text.Replace("&", ""), _ffmpeg.Font).Width + S(34);
+            if (_ffmpeg.Visible)
+            {
+                Poner(_ffmpeg, relleno - S(3), cy - S(3), anchoFfmpeg + S(6), altoBoton + S(6));
+                cy += altoBoton;
+            }
+            cy = Nota(_notaFfmpeg, relleno, cy + S(6), interior);
+            cy += S(14);
             var anchoBuscar = TextRenderer.MeasureText(_buscarAhora.Text.Replace("&", ""), _buscarAhora.Font).Width + S(34);
             Poner(_buscarAhora, relleno - S(3), cy + S(4) - S(3), anchoBuscar + S(6), altoBoton + S(6));
             cy += S(4) + altoBoton;
@@ -615,6 +627,33 @@ internal sealed class VentanaPrincipal : Form
         if (Bottom > area.Bottom && Visible) Top = Math.Max(area.Top, area.Bottom - Height);
         _contenido.ResumeLayout(false);
         ResumeLayout(true); // el panel con Dock = Fill tiene que seguir al nuevo alto
+    }
+
+    /// <summary>
+    /// ffmpeg de respaldo: el botón para bajarlo (con confirmación) o para cancelar la descarga, y la nota de cómo está.
+    /// Solo con «Avanzado» abierto: buscarlo mira el disco y el PATH.
+    /// </summary>
+    private void RefrescarFfmpeg(Mando m)
+    {
+        var ruta = m.RutaFfmpeg;
+        var bajando = m.AvanceFfmpeg is not null;
+        _ffmpeg.Visible = bajando || ruta is null;
+        _ffmpeg.Enabled = bajando || m.PuedeDescargarFfmpeg;
+        _ffmpeg.Text = m.AvanceFfmpeg is { } p ? $"Cancelar la descarga ({p} %)" : "Descargar ff&mpeg…";
+        _notaFfmpeg.Text = m.EstadoFfmpeg ?? (ruta is not null
+            ? $"ffmpeg (respaldo de la captura): encontrado en {ruta}."
+            : "ffmpeg no está instalado. No hace falta salvo que la captura propia no funcione en este PC. Se descarga solo con tu confirmación.");
+    }
+
+    private void AlPulsarFfmpeg()
+    {
+        if (_mando.AvanceFfmpeg is not null)
+        {
+            _mando.CancelarDescargaFfmpeg();
+            return;
+        }
+        var r = MessageBox.Show(this, Mando.TextoConfirmacionFfmpeg(), "Descargar ffmpeg", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (r == DialogResult.OK) _mando.DescargarFfmpegAhora();
     }
 
     /// <summary>

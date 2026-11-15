@@ -68,6 +68,7 @@ internal static class Diagnostico
             foreach (var m in monitores)
                 L($"{m.Indice}: {m.Nombre} {m.Ancho}×{m.Alto}{(m.Principal ? " principal" : "")}{(m.Descripcion.Length > 0 ? " · " + m.Descripcion : "")} · adaptador {m.Adaptador} ({m.NombreAdaptador}), salida {m.Salida}");
             L($"monitor virtual: {Cli.EstadoMonitorVirtual()}");
+            L($"topología de pantallas (Win+P): {Topologia.Actual()}");
         }
         catch (Exception e) when (e is not OutOfMemoryException) { L($"No se pudieron listar: {e.Message}"); }
         L();
@@ -137,7 +138,14 @@ internal static class Diagnostico
             var resultado = virtualMonitor.Conectar(TimeSpan.FromSeconds(20));
             lineas.Add($"conectar: {resultado} en {reloj.Elapsed.TotalSeconds:0.0} s"
                        + (resultado == MonitorVirtual.Resultado.Fallo ? " — NO SE PUDO (el motivo está en «Errores registrados»)" : ""));
-            if (resultado == MonitorVirtual.Resultado.Fallo) return lineas;
+            if (virtualMonitor.AvisoTopologia is { } aviso) lineas.Add("pantallas: " + aviso);
+            if (virtualMonitor.ModoAnterior is { } previo)
+                lineas.Add($"ya estaba conectado a {previo.Ancho}×{previo.Alto}@{previo.Hz}: se le puso el modo pedido y se devuelve al terminar");
+            if (resultado == MonitorVirtual.Resultado.Fallo)
+            {
+                if (virtualMonitor.Motivo is { } motivo) lineas.Add("motivo: " + motivo);
+                return lineas;
+            }
             try
             {
                 var monitor = Monitores.Listar().FirstOrDefault(m => string.Equals(m.Nombre, virtualMonitor.Dispositivo, StringComparison.OrdinalIgnoreCase));
@@ -155,7 +163,10 @@ internal static class Diagnostico
                 if (resultado == MonitorVirtual.Resultado.Conectado)
                     lineas.Add(virtualMonitor.Liberar() ? "quitado del escritorio otra vez" : "NO se pudo quitar: se reintenta al abrir el programa");
                 else
+                {
+                    virtualMonitor.RestaurarModoAnterior();
                     lineas.Add("ya estaba conectado: se deja así");
+                }
             }
         }
         catch (Exception e) when (e is not OutOfMemoryException)

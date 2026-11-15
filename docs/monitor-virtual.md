@@ -123,6 +123,13 @@ lo es). En automático se limita a 1080 líneas (una tele 4K recibe 1920×1080),
 y sube la latencia; los cuadros por segundo tampoco pasan de la frecuencia del monitor. Si la tele no informa su
 pantalla (receptor anterior), 1920×1080 a 60 Hz como antes.
 
+**Si el monitor ya estaba conectado** (lo conectó la persona o, tras instalar el controlador, Windows, que lo deja en el
+primer modo del controlador: 3840×2160), `Conectar` ya no lo daba por bueno sin mirar: desde la 0.12.0 le pone el modo
+pedido (sin moverlo de sitio) y, al terminar, le devuelve el que tenía (`MonitorVirtual.AjustarModoDelConectado` y
+`RestaurarModoAnterior`). Esa era la causa más probable del 3840×2160 del portátil de César: antes solo se aplicaba el modo
+cuando el monitor lo conectaba el propio programa. Además, tras conectarlo, el registro anota el tamaño con que quedó de
+verdad si no es el pedido.
+
 Para fijar otro: **Avanzado › Monitor virtual** (la lista muestra los modos que ofrece el controlador; se guarda en
 `ModoMonitorVirtual` de los ajustes). Por línea de comandos: `--monitor virtual --modo-virtual 1280x720@60`. Con una
 configuración de la 0.10 o anterior la lista solo trae dos modos: «Reinstalar» la actualiza.
@@ -132,17 +139,59 @@ configuración de la 0.10 o anterior la lista solo trae dos modos: «Reinstalar�
 - **Sonido por aplicación** (WASAPI por proceso, Windows 10 2004+): sin hacer.
 - **El cursor del ratón** sale en la imagen cuando está sobre el monitor transmitido.
 - Probar con un monitor de otro adaptador.
-- **Portátil con dos gráficas (diagnóstico de César, 13/11/2026)**:
-  - En «Duplicar», Windows rechaza conectar el monitor virtual (`ChangeDisplaySettingsEx -1`). Arreglo:
-    pasar sola a «Extender» (la API de Win+P) antes de conectar, y explicar que para ver el mismo monitor
-    hay que desmarcar el monitor virtual.
-  - El virtual quedó en la NVIDIA a 3840×2160 y ningún codificador lo aceptó (AMD: E_FAIL; NVIDIA MFT:
-    E_UNEXPECTED). Arreglo: dejarlo en la resolución pedida, probar primero el codificador de la gráfica
-    dueña de esa salida abierto sobre esa misma gráfica y, si falla, copiar la imagen a la otra gráfica.
-    Sin el virtual, la nativa por la AMD funciona.
-  - ffmpeg de respaldo: ofrecer **descargarlo automáticamente desde el emisor** (con verificación) en
-    vez de pedir que la persona lo copie junto a `PantallaTv.exe` (Diego, 14/11).
 - El contenido con DRM se captura en negro, igual que en el monitor real.
+
+## Portátil con dos gráficas (0.12.0; diagnóstico de César, 13/11/2026)
+
+En un portátil AMD + NVIDIA el monitor virtual falló de tres maneras. Las tres están tratadas en código y con pruebas, **pero
+ninguna se pudo probar de punta a punta sin un portátil así** (ver «Qué no se pudo probar»).
+
+1. **«Duplicar» bloquea el monitor virtual** (`ChangeDisplaySettingsEx` daba -1). Antes de conectarlo,
+   `Topologia.Actual()` consulta la topología con `QueryDisplayConfig` (`QDC_DATABASE_CURRENT`); si es «Duplicar», pasa a
+   «Extender» con `SetDisplayConfig(SDC_TOPOLOGY_EXTEND | SDC_APPLY)`, la misma API de Win+P. Al soltar el monitor vuelve a
+   «Duplicar» (solo si sigue en «Extender»: si la persona la cambió entretanto, se respeta). La marca en disco
+   (`monitor-virtual-conectado.marca`) lleva una segunda línea `duplicar`, así que si el programa muere a medias, el
+   siguiente arranque también vuelve a «Duplicar». La persona ve un aviso (globo y registro): se pasó a «Extender» y, para
+   ver en la tele el mismo monitor que en el PC, hay que desmarcar el monitor virtual. Si `SetDisplayConfig` falla, el error
+   dice en palabras que hay que hacerlo con Win+P → Extender (no un código suelto) y no se transmite. El diagnóstico anota
+   la topología y el aviso.
+2. **El virtual quedó en 3840×2160 y ningún codificador lo aceptó.**
+   - (a) La resolución: era el caso del monitor ya conectado (arriba, «Resolución del monitor virtual»); ahora se lleva al
+     modo de la tele y se devuelve después.
+   - (b) El codificador se elige por la **gráfica dueña de la salida** capturada. `PlanCodificador.Ordenar` (función pura,
+     con pruebas) da el orden: 1) la gráfica de la salida, con su codificador abierto sobre el mismo dispositivo D3D11; 2) cada
+     otra gráfica que tenga codificador de hardware (de más a menos memoria de vídeo, sin las «por software»), **copiando el
+     cuadro** a ella; 3) el respaldo con ffmpeg (la tubería nativa lanza `NativaNoDisponibleException`, como siempre). Cada
+     intento queda en el registro y en `--diagnostico` con su HRESULT («nativa: intento 2/2 (copiar el cuadro a otra
+     gráfica…): no funcionó: … (0x…)»). La copia (`PuenteGpu`) pasa el cuadro ya convertido a NV12 por la memoria del sistema
+     (textura de lectura en la gráfica de origen → textura de escritura en la de destino): una textura compartida entre
+     adaptadores no es fiable con NV12. Cuesta ~3 MB por cuadro a 1080p en cada sentido (12 MB a 4K). La conversión y el
+     cursor siguen en la gráfica que dibuja el monitor.
+3. **ffmpeg de respaldo se descarga solo desde el emisor**, con confirmación: ver abajo.
+
+### ffmpeg: descarga desde el emisor
+
+«Avanzado › Descargar ffmpeg» (aparece si no hay un `ffmpeg.exe` junto al programa, en la carpeta de datos ni en el PATH).
+Pide confirmación mostrando de dónde, qué versión, cuánto pesa y la licencia. Baja una versión **fijada** por https,
+comprueba que tenga el tamaño y el SHA-256 puestos en el código, extrae **solo** `ffmpeg.exe` a
+`%LocalAppData%\PantallaTv\ffmpeg\` (se puede escribir sin administrador, aunque el programa esté en Archivos de programa) y
+borra el zip. Con progreso y botón para cancelar; si algo no cuadra no queda nada en disco. Fuente, versión y licencia:
+`THIRD-PARTY.md`. Es la segunda conexión a internet del programa y solo ocurre si la persona la pide.
+
+### Qué no se pudo probar
+
+Se probó con lo que hay en un PC con una sola gráfica (AMD): el orden del plan, el paso de «Duplicar» a «Extender» como
+lógica (la consulta de la topología es solo lectura; **no se cambió** la topología real), el modo de un monitor ya
+conectado como lógica, la copia de un cuadro NV12 entre dos dispositivos D3D11 de la misma gráfica (bytes idénticos), la
+tubería nativa de punta a punta con el plan, y la descarga contra un servidor falso. **Falta, en el portátil de dos gráficas:**
+
+- Que «Duplicar» → «Extender» → monitor virtual → transmitir → soltar → «Duplicar» ocurra de verdad (y que la consulta
+  `QDC_DATABASE_CURRENT` devuelva «Duplicar» allí; si devolviera otra cosa, no se cambiaría nada y el error de antes seguiría).
+- Que Windows no deje el monitor virtual conectado en un modo distinto del pedido.
+- Que el codificador de la NVIDIA acepte el cuadro (intento 1) o, si no, que la copia a la otra gráfica funcione (intento 2).
+  Ojo: el diseño del NV12 en la memoria de lectura (la croma a `paso × alto` del comienzo) se verificó en AMD; otra
+  gráfica con un alto alineado distinto daría una imagen con la croma corrida. Mirar el registro: cada intento y su HRESULT.
+- Lo que cuesta la copia por CPU a 1080p60 (esperable: algún punto de CPU y un cuadro más de latencia).
 
 ## Velocidad y búfer
 

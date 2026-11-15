@@ -17,6 +17,9 @@ internal interface ICodificador : IDisposable
 {
     string Descripcion { get; }
 
+    /// <summary>Si acepta un fotograma clave a pedido (si no, manda uno cada tantos segundos).</summary>
+    bool ClaveAPedido => false;
+
     /// <summary>La textura donde convertir el próximo cuadro (el codificador puede seguir leyendo las anteriores).</summary>
     DestinoNv12 SiguienteDestino();
 

@@ -10,7 +10,8 @@
 - La app «Pantalla» (`pantalla-receptor-<versión>.apk`) instalada en una tele o TV Box con Android 8 o superior.
 - Opcional: un `ffmpeg.exe` junto al instalador (o instalado en el PATH, por ejemplo con
   `winget install Gyan.FFmpeg`). Sirve de respaldo si la captura propia no funciona en tu gráfica; no hace falta
-  para probar la captura propia.
+  para probar la captura propia. Desde la 0.12.0 el emisor también lo descarga desde «Avanzado › Descargar ffmpeg»
+  (con confirmación).
 
 ## Pasos (unos 10 minutos)
 
@@ -46,7 +47,7 @@ del registro (que pueden traer la IP de tu tele en tu red local); borra lo que p
 | `== Gráficas` | Fabricante (NVIDIA `VEN_10DE`, Intel `VEN_8086`) y, por gráfica, **«codificadores H.264 por hardware»**. «ninguno» = la nativa no puede en esa gráfica y se usará ffmpeg. En un portátil con dos gráficas, la que tiene `salida N: … en el escritorio` es la que manda. |
 | `== Prueba de la captura propia` | **FUNCIONA / NO FUNCIONA** por monitor; «primera … (clave con SPS/PPS)» y la media del codificador (en AMD ~19 ms). La última línea dice qué MFT se usó, qué ajustes **rechazó**, si hubo que **descartar** otra antes, si da **clave a pedido** (si no, una cada 4 s) y si **retiene un cuadro** (AMD sí; NVIDIA o Intel quizá no: entonces no se empuja). |
 | `== ffmpeg` | Si hay un ffmpeg de respaldo. |
-| `== Registro` | `nativa: …` (codificador elegido), `codificador: la MFT pidió renegociar el tipo de salida (STREAM_CHANGE)` (nunca visto en AMD), `tubería nativa descartada: …` (por qué cayó al respaldo), `nativa: se rehace todo tras …`. |
+| `== Registro` | `nativa: intento N/M (…): funcionó / no funcionó: … (0x…)` (en un portátil con dos gráficas, dónde se probó codificar y por qué falló cada vez), `nativa: …` (codificador elegido), `codificador: la MFT pidió renegociar el tipo de salida (STREAM_CHANGE)` (nunca visto en AMD), `tubería nativa descartada: …` (por qué cayó al respaldo), `nativa: se rehace todo tras …`. |
 
 ## Qué se espera y qué no se sabe
 

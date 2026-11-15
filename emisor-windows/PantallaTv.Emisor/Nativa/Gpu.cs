@@ -32,6 +32,37 @@ internal static class Gpu
         return null;
     }
 
+    /// <summary>El LUID de DXGI (alto y bajo) en un solo número.</summary>
+    public static long ComoLong(Vortice.Luid l) => ((long)l.HighPart << 32) | l.LowPart;
+
+    public static AdaptadorGpu Describir(IDXGIAdapter1 adaptador)
+    {
+        var d = adaptador.Description1;
+        return new AdaptadorGpu(ComoLong(d.Luid), d.Description.Trim(), d.VendorId, (long)d.DedicatedVideoMemory, (d.Flags & AdapterFlags.Software) != 0);
+    }
+
+    /// <summary>Todas las gráficas que ve DXGI (con o sin pantallas conectadas).</summary>
+    public static IReadOnlyList<AdaptadorGpu> Adaptadores()
+    {
+        var lista = new List<AdaptadorGpu>();
+        using var fabrica = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
+        for (uint a = 0; fabrica.EnumAdapters1(a, out var ad).Success; a++)
+            using (ad) lista.Add(Describir(ad));
+        return lista;
+    }
+
+    /// <summary>El adaptador con ese LUID; quien lo recibe lo libera. null si ya no está.</summary>
+    public static IDXGIAdapter1? PorLuid(long luid)
+    {
+        using var fabrica = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
+        for (uint a = 0; fabrica.EnumAdapters1(a, out var ad).Success; a++)
+        {
+            if (ComoLong(ad.Description1.Luid) == luid) return ad;
+            ad.Dispose();
+        }
+        return null;
+    }
+
     /// <summary>Dispositivo D3D11 con soporte de vídeo, protegido para varios hilos (lo exige Media Foundation).</summary>
     public static (ID3D11Device Dispositivo, ID3D11DeviceContext Contexto) Abrir(IDXGIAdapter1 adaptador)
     {

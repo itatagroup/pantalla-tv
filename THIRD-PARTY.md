@@ -36,9 +36,23 @@ Las apps de Android (`receptor-android/` y `emisor-android/`) **no usan ninguna 
 ### ffmpeg
 
 - Proyecto: <https://ffmpeg.org>. Licencia LGPL-2.1 o posterior, o GPL, según la compilación.
-- **No se incluye ni se descarga** con Pantalla TV. Desde la 0.7.0 la captura y la codificación son propias y no
-  lo necesitan. Si el usuario ya tiene un `ffmpeg.exe` (junto a `PantallaTv.exe` o en el PATH), el programa lo
-  usa como **respaldo** cuando la captura propia no funciona en su PC, ejecutándolo como proceso aparte.
+- **No se incluye en el instalador.** Desde la 0.7.0 la captura y la codificación son propias y no lo necesitan. Si el
+  usuario ya tiene un `ffmpeg.exe` (junto a `PantallaTv.exe`, en `%LocalAppData%\PantallaTv\ffmpeg` o en el PATH), el
+  programa lo usa como **respaldo** cuando la captura propia no funciona en su PC, ejecutándolo como proceso aparte.
+- **Descarga opcional (desde la 0.12.0).** En «Avanzado › Descargar ffmpeg», y solo si el usuario lo confirma, el emisor de
+  Windows baja una versión **fijada** en el código (`DescargadorFfmpeg.Fijado`):
+  - Qué: ffmpeg **9.0.2**, compilación «essentials» de Gyan Doshi (<https://www.gyan.dev/ffmpeg/builds/>), archivo
+    `ffmpeg-9.0.2-essentials_build.zip` (114 768 076 bytes) del release `9.0.2` del repositorio
+    <https://github.com/GyanD/codexffmpeg>, por https.
+  - Por qué esa: es la compilación para Windows más usada y estable, trae x264 (la tubería por CPU de respaldo lo necesita)
+    y publica la huella de cada archivo. Su licencia es **GPL v3** (por x264 y otras bibliotecas), compatible con la GPL-3.0
+    de este proyecto; el código fuente y la licencia completa están en las páginas de arriba y dentro del zip.
+  - Verificación: SHA-256 `60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba`, escrito en el código (no se
+    lee de un archivo bajado del mismo sitio). Se obtuvo sin bajar el binario, de dos fuentes que coinciden: el campo
+    `digest` de la API de releases de GitHub y el `.sha256` publicado por gyan.dev. Si no coincide el tamaño ni la huella,
+    se borra todo y no se instala nada.
+  - De ese zip solo se extrae `ffmpeg.exe`, a `%LocalAppData%\PantallaTv\ffmpeg` (se puede escribir sin administrador).
+    Para cambiar de versión hay que cambiar tamaño, huella y ruta juntos en el código.
 - `herramientas/empaquetar.ps1 -ConFfmpeg` permite a quien arma su propio instalador adjuntar un `ffmpeg.exe`
   suyo; en ese caso, quien lo distribuya debe cumplir la licencia de esa compilación.
 
