@@ -61,8 +61,9 @@ internal sealed class CodificadorMf : ICodificador
     /// <param name="vbr">true = VBR con tope (<c>PeakConstrainedVBR</c>, <paramref name="kbps"/> es el máximo); false = CBR (rellena con la pantalla quieta).</param>
     /// <param name="adaptador">LUID del adaptador de <paramref name="dev"/>: se prueban primero las MFT de ese adaptador (en un
     /// portátil con dos gráficas, la MFT de la otra no lee las texturas de este dispositivo). null = en el orden de Windows.</param>
+    /// <param name="soloAdaptador">Probar solo las MFT de <paramref name="adaptador"/> (si Windows sabe filtrarlas por gráfica), no las demás.</param>
     public CodificadorMf(ID3D11Device dev, int ancho, int alto, int fps, int kbps, bool vbr, SalidaCodificador salida,
-        Vortice.Luid? adaptador = null)
+        Vortice.Luid? adaptador = null, bool soloAdaptador = false)
     {
         _salida = salida;
         MediaFactory.MFStartup(true).CheckError();
@@ -72,7 +73,7 @@ internal sealed class CodificadorMf : ICodificador
         string? nombre = null;
         try
         {
-            foreach (var (activar, nombreMft) in Candidatas(adaptador))
+            foreach (var (activar, nombreMft) in Candidatas(adaptador, soloAdaptador))
             {
                 using (activar)
                 {
@@ -118,7 +119,7 @@ internal sealed class CodificadorMf : ICodificador
     /// Las MFT de hardware de NV12 a H.264, con su nombre: primero las del adaptador pedido (<c>MFTEnum2</c> filtra por
     /// LUID) y después las demás que lista <c>MFTEnumEx</c>, sin repetir. Quien recorre la lista libera cada una.
     /// </summary>
-    private static List<(IMFActivate Activar, string Nombre)> Candidatas(Vortice.Luid? adaptador)
+    private static List<(IMFActivate Activar, string Nombre)> Candidatas(Vortice.Luid? adaptador, bool soloAdaptador = false)
     {
         var entrada = new RegisterTypeInfo { GuidMajorType = Guids.Video, GuidSubtype = Guids.Nv12 };
         var salida = new RegisterTypeInfo { GuidMajorType = Guids.Video, GuidSubtype = Guids.H264 };
@@ -134,6 +135,7 @@ internal sealed class CodificadorMf : ICodificador
             todas.Add((a, nombre));
         }
 
+        var filtradasPorGpu = false;
         if (adaptador is { } luid)
         {
             // MFTEnum2 (Windows 10 1703 o posterior) con MFT_ENUM_ADAPTER_LUID: solo las MFT de esa gráfica.
@@ -146,6 +148,7 @@ internal sealed class CodificadorMf : ICodificador
                 try
                 {
                     for (var i = 0; i < cuantas; i++) Sumar(new IMFActivate(Marshal.ReadIntPtr(arreglo, i * IntPtr.Size)));
+                    filtradasPorGpu = true;
                 }
                 finally { Marshal.FreeCoTaskMem(arreglo); }
             }
@@ -154,6 +157,9 @@ internal sealed class CodificadorMf : ICodificador
                 Trace.WriteLine($"codificador: MFTEnum2 no disponible ({e.Message}); se usa MFTEnumEx");
             }
         }
+
+        // Pedido solo el adaptador y Windows supo filtrar por gráfica: no se agregan las de las demás.
+        if (soloAdaptador && filtradasPorGpu) return todas;
 
         try
         {
@@ -174,12 +180,12 @@ internal sealed class CodificadorMf : ICodificador
     }
 
     /// <summary>Los nombres de las MFT que se probarían para ese adaptador, en orden (para <c>--diagnostico</c>).</summary>
-    public static IReadOnlyList<string> Listar(Vortice.Luid? adaptador)
+    public static IReadOnlyList<string> Listar(Vortice.Luid? adaptador, bool soloAdaptador = false)
     {
         MediaFactory.MFStartup(true).CheckError();
         try
         {
-            var candidatas = Candidatas(adaptador);
+            var candidatas = Candidatas(adaptador, soloAdaptador);
             foreach (var (a, _) in candidatas) a.Dispose();
             return [.. candidatas.Select(c => c.Nombre)];
         }

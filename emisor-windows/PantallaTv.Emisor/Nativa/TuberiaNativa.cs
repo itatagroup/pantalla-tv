@@ -181,7 +181,7 @@ internal sealed class TuberiaNativa : IFuenteVideo
         }
     }
 
-    private static string Explicar(Exception e) =>
+    internal static string Explicar(Exception e) =>
         e is SharpGenException s ? $"{s.Message.Trim()} (0x{s.HResult:X8})" : e.Message;
 
     /// <summary>Un dispositivo, un codificador y las duplicaciones que hagan falta. Sale por excepción o al cancelar.</summary>
@@ -201,8 +201,9 @@ internal sealed class TuberiaNativa : IFuenteVideo
         using var conversor = new ConversorSombreador(dev, ctx, _op.Ancho, _op.Alto, MatrizColor.Bt601);
         var parametros = new ParametrosH264();
         var enVuelo = new EnVuelo();
-        using var codificador = new CodificadorMf(dev, _op.Ancho, _op.Alto, _op.Fps, _op.Kbps, vbr: true,
-            (unidad, tiempo) => AlSalir(parametros, enVuelo, unidad, tiempo), luid);
+        // Según el plan de PlanCodificador: la gráfica del monitor primero y, si ninguno acepta, otra gráfica con el cuadro copiado.
+        using var codificador = FabricaCodificador.Crear(adaptador, dev, ctx, _op.Ancho, _op.Alto, _op.Fps, _op.Kbps,
+            (unidad, tiempo) => AlSalir(parametros, enVuelo, unidad, tiempo));
         _claveAPedido = codificador.ClaveAPedido;
         if (_detalle != codificador.Descripcion)
         {
