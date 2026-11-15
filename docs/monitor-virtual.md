@@ -169,6 +169,26 @@ ninguna se pudo probar de punta a punta sin un portátil así** (ver «Qué no s
      cursor siguen en la gráfica que dibuja el monitor.
 3. **ffmpeg de respaldo se descarga solo desde el emisor**, con confirmación: ver abajo.
 
+### El monitor virtual en la gráfica de la pantalla física
+
+Con `<friendlyname>default</friendlyname>` en `vdd_settings.xml` Windows elige la gráfica del monitor virtual y en un portátil
+AMD + NVIDIA suele elegir la NVIDIA: la captura copia cada cuadro a la AMD (≈0,4 núcleos). Con el nombre de la gráfica que
+dibuja la pantalla física (la descripción DXGI, p. ej. `AMD Radeon(TM) Graphics`) el monitor virtual queda en la misma gráfica,
+sin copia (medido: 64–65 fps, ≈0,1 núcleos).
+
+- **Al instalar** se escribe la configuración con `Controlador.ElegirGpu`: `default` si hay una sola gráfica de hardware (se
+  cuentan por nombre, DXGI puede listar la misma dos veces; las «por software» no cuentan) y, con más de una, la que dibuja la
+  pantalla principal. Una configuración nuestra se reconoce con cualquier `friendlyname`, así que reinstalar la actualiza.
+- **Si ya estaba instalado** y al conectar el monitor lo dibuja otra gráfica, queda en el registro, en el globo de la
+  transmisión, en la nota de «Avanzado» y en `--diagnostico`, y aparece el botón «Mover el monitor virtual a la gráfica de la
+  pantalla» (`--reubicar-monitor-virtual`, pide administrador: reescribe la configuración y reinicia el dispositivo). Si la
+  configuración la cambió la persona (algo más que `friendlyname`), no se toca: el aviso dice que hay que cambiarlo a mano.
+- **Si no se sabe cuál dibuja la principal** (DXGI no responde, o `PantallaTv.exe` tiene una preferencia de gráfica en
+  Configuración › Pantalla › Gráficos, que hace que DXGI cuelgue las salidas de la preferida) no se cambia la gráfica que ya
+  tenía la configuración; mover el monitor falla con un mensaje que dice por qué.
+- Probado en el portátil (15/11/2026): con `default` el aviso salió al conectar; `--reubicar-monitor-virtual` (UAC) escribió
+  la AMD, reinició el dispositivo y el virtual quedó en la AMD, sin aviso, transmitiendo a la tele por la misma gráfica.
+
 ### ffmpeg: descarga desde el emisor
 
 «Avanzado › Descargar ffmpeg» (aparece si no hay un `ffmpeg.exe` junto al programa, en la carpeta de datos ni en el PATH).

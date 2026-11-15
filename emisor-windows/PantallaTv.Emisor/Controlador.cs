@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
+using PantallaTv.Emisor.Nativa;
 
 namespace PantallaTv.Emisor;
 
@@ -62,6 +63,12 @@ internal static class Controlador
             return r with { Detalle = Unir(r.Detalle, "El monitor virtual quedó conectado al escritorio: se quita solo al terminar la primera transmisión, o en Configuración › Pantalla.") };
         return r;
     }
+
+    /// <summary>
+    /// Mueve el monitor virtual a la gráfica de la pantalla principal pidiendo permiso (UAC): reescribe su configuración
+    /// (si es la nuestra) y reinicia el dispositivo.
+    /// </summary>
+    public static Respuesta ReubicarConPermiso() => EjecutarElevado("--reubicar-monitor-virtual");
 
     /// <summary>Lo quita del escritorio (si lo está) y después quita dispositivo y paquete pidiendo permiso.</summary>
     public static Respuesta QuitarConPermiso(string id)
@@ -157,6 +164,11 @@ internal static class Controlador
         var informe = Instalador.Texto(args, "--informe");
         try
         {
+            if (args.Contains("--reubicar-monitor-virtual"))
+            {
+                Informar(informe, ReubicarAqui());
+                return 0;
+            }
             if (args.Contains("--instalar-controlador"))
             {
                 var (creado, avisoInstalar) = InstalarAqui();
@@ -195,7 +207,8 @@ internal static class Controlador
         try
         {
             ExtraerArchivos(temporal);
-            var configuracionNueva = EscribirConfiguracion();
+            var gpu = GpuParaEstePc();
+            var configuracionNueva = EscribirConfiguracion(gpu);
             var inf = Path.Combine(temporal, Archivos[0]);
 
             var creado = false;
@@ -216,7 +229,7 @@ internal static class Controlador
             }
             // Ya estaba: se reinicia para que lea la configuración (y para arreglar uno que quedó a medias).
             if (!creado && !ReiniciarDispositivos()) reiniciar = true;
-            if (configuracionNueva) Registro.Anotar("monitor virtual: configuración escrita con los modos de esta versión");
+            if (configuracionNueva) Registro.Anotar($"monitor virtual: configuración escrita con los modos de esta versión (gráfica: {gpu ?? "la que ya tenía"})");
             return (creado, reiniciar ? "Windows pide reiniciar el PC para terminar de instalar el monitor virtual." : null);
         }
         finally
@@ -224,6 +237,23 @@ internal static class Controlador
             try { Directory.Delete(temporal, recursive: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
+    }
+
+    /// <summary>
+    /// Pone el monitor virtual en la gráfica de la pantalla principal: reescribe la configuración con ese <c>friendlyname</c> (solo
+    /// si es la nuestra) y reinicia el dispositivo para que la lea. Devuelve un aviso (p. ej. que hay que reiniciar el PC) o null.
+    /// </summary>
+    private static string? ReubicarAqui()
+    {
+        var ruta = RutaConfiguracion();
+        if (!File.Exists(ruta) || !EsConfiguracionPropia(File.ReadAllText(ruta)))
+            throw new ControladorException($"La configuración del monitor virtual ({ruta}) no es la de Pantalla TV: no se toca. Para moverlo, cambia a mano el friendlyname de <gpu> por el nombre de la gráfica de la pantalla.");
+        var gpu = GpuParaEstePc() ?? throw new ControladorException(PreferenciaDeGrafica(Environment.ProcessPath) is not null
+            ? $"Windows tiene a Pantalla TV asignado a una gráfica («{PreferenciaDeGrafica(Environment.ProcessPath)}» en Configuración › Sistema › Pantalla › Gráficos): así no se puede saber cuál dibuja la pantalla. Quita esa preferencia y vuelve a intentarlo."
+            : "No se pudo saber qué gráfica dibuja la pantalla principal: no se cambió nada.");
+        if (EscribirConfiguracion(gpu))
+            Registro.Anotar($"monitor virtual: configuración reescrita con la gráfica «{gpu}»");
+        return ReiniciarDispositivos() ? null : "Windows pide reiniciar el PC para terminar de mover el monitor virtual.";
     }
 
     /// <summary>ERROR_NO_MORE_ITEMS: el dispositivo ya tiene un controlador igual o mejor. No es un fallo.</summary>
@@ -286,14 +316,22 @@ internal static class Controlador
     /// La configuración que escribe Pantalla TV: un monitor y los modos de <see cref="TamanosPropios"/> (sin la lista
     /// «global» de frecuencias, que duplicaría los modos). Las opciones, como las trae el controlador.
     /// </summary>
-    internal static string ConfiguracionPropia() =>
-        Configuracion(TamanosPropios.SelectMany(t => FrecuenciasPropias.Select(hz => (t.Ancho, t.Alto, hz))));
+    internal static string ConfiguracionPropia(string gpu = GpuPorDefecto) =>
+        Configuracion(TamanosPropios.SelectMany(t => FrecuenciasPropias.Select(hz => (t.Ancho, t.Alto, hz))), gpu);
 
     /// <summary>Las que escribieron versiones anteriores (hasta la 0.10): se reconocen como nuestras y se actualizan.</summary>
-    internal static readonly string[] ConfiguracionesAnteriores = [Configuracion([(1920, 1080, 60), (1280, 720, 60)])];
+    internal static readonly string[] ConfiguracionesAnteriores = [Configuracion([(1920, 1080, 60), (1280, 720, 60)], GpuPorDefecto)];
 
-    private static string Configuracion(IEnumerable<(int Ancho, int Alto, int Hz)> modos)
+    /// <summary>El <c>friendlyname</c> que deja elegir la gráfica a Windows.</summary>
+    internal const string GpuPorDefecto = "default";
+
+    /// <summary>
+    /// <paramref name="gpu"/>: el <c>friendlyname</c> de la gráfica que dibuja el monitor virtual (la descripción DXGI, p. ej.
+    /// «AMD Radeon(TM) Graphics»); «default» deja elegir a Windows. Se escapa para XML.
+    /// </summary>
+    internal static string Configuracion(IEnumerable<(int Ancho, int Alto, int Hz)> modos, string gpu)
     {
+        var nombreGpu = System.Security.SecurityElement.Escape(string.IsNullOrWhiteSpace(gpu) ? GpuPorDefecto : gpu.Trim());
         var resoluciones = string.Concat(modos.Select(m =>
             $"        <resolution>\n            <width>{m.Ancho}</width>\n            <height>{m.Alto}</height>\n            <refresh_rate>{m.Hz}</refresh_rate>\n        </resolution>\n"));
         return ("""
@@ -304,7 +342,7 @@ internal static class Controlador
                 <count>1</count>
             </monitors>
             <gpu>
-                <friendlyname>default</friendlyname>
+                <friendlyname>@@GPU@@</friendlyname>
             </gpu>
             <resolutions>
 
@@ -321,10 +359,133 @@ internal static class Controlador
                 <debuglogging>false</debuglogging>
             </options>
         </vdd_settings>
-        """).ReplaceLineEndings("\r\n") + "\r\n";
+        """).Replace("@@GPU@@", nombreGpu).ReplaceLineEndings("\r\n") + "\r\n";
     }
 
-    private static string Normalizar(string texto) => texto.ReplaceLineEndings("\n").Trim();
+    private static readonly System.Text.RegularExpressions.Regex NombreDeGpu =
+        new(@"<friendlyname>.*?</friendlyname>", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    /// <summary>Normaliza el texto y deja el <c>friendlyname</c> en «default»: la gráfica elegida no cambia de quién es la configuración.</summary>
+    private static string Normalizar(string texto) =>
+        NombreDeGpu.Replace(texto.ReplaceLineEndings("\n").Trim(), $"<friendlyname>{GpuPorDefecto}</friendlyname>");
+
+    /// <summary>La gráfica (<c>friendlyname</c>) de una configuración; null si no se puede leer.</summary>
+    internal static string? GpuDeConfiguracion(string contenido)
+    {
+        try
+        {
+            return System.Xml.Linq.XDocument.Parse(contenido).Root?.Element("gpu")?.Element("friendlyname")?.Value.Trim();
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>La gráfica que dice la configuración instalada ahora; null si no hay archivo o no se puede leer.</summary>
+    public static string? GpuConfigurada()
+    {
+        try
+        {
+            var ruta = RutaConfiguracion();
+            return File.Exists(ruta) ? GpuDeConfiguracion(File.ReadAllText(ruta)) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>¿La configuración instalada es una que escribimos (así que se puede reescribir)?</summary>
+    public static bool ConfiguracionEsNuestra()
+    {
+        try
+        {
+            var ruta = RutaConfiguracion();
+            return File.Exists(ruta) && EsConfiguracionPropia(File.ReadAllText(ruta));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return false;
+        }
+    }
+
+    // ── qué gráfica dibuja el monitor virtual ──
+
+    /// <summary>
+    /// La gráfica para el <c>friendlyname</c>: «default» con una sola gráfica de hardware (no hay a dónde mover nada), y con más de
+    /// una, la que dibuja la pantalla principal, para que el monitor virtual quede con ella y los cuadros no se copien entre
+    /// gráficas. DXGI puede listar la misma dos veces (otro LUID): se cuentan por nombre. Las de software no cuentan.
+    /// </summary>
+    /// <param name="principal">El nombre (descripción DXGI) de la gráfica que dibuja la pantalla principal; null si no se sabe.</param>
+    /// <returns>null si hay varias gráficas y no se sabe cuál dibuja la principal: quien llama no cambia la que haya.</returns>
+    internal static string? ElegirGpu(IReadOnlyList<AdaptadorGpu> graficas, string? principal)
+    {
+        var distintas = NombresDeHardware(graficas);
+        if (distintas.Count < 2) return GpuPorDefecto;
+        if (string.IsNullOrWhiteSpace(principal)) return null;
+        var nombre = principal.Trim();
+        return distintas.Contains(nombre, StringComparer.OrdinalIgnoreCase) ? nombre : null;
+    }
+
+    internal static List<string> NombresDeHardware(IReadOnlyList<AdaptadorGpu> graficas) =>
+        graficas.Where(g => !g.PorSoftware).Select(g => g.Nombre.Trim()).Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>Las gráficas que ve DXGI ahora (vacío si no responde).</summary>
+    internal static IReadOnlyList<AdaptadorGpu> GraficasDelPc()
+    {
+        try { return Nativa.Gpu.Adaptadores(); }
+        catch (Exception e) when (e is not OutOfMemoryException) { return []; }
+    }
+
+    /// <summary>La gráfica que dibuja la pantalla principal ahora (la salida DXGI de la principal de Windows); null si no se sabe.</summary>
+    internal static string? GraficaDePrincipal()
+    {
+        try
+        {
+            var nombre = Monitores.Listar().FirstOrDefault(m => m.Principal)?.NombreAdaptador.Trim();
+            return string.IsNullOrEmpty(nombre) ? null : nombre;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException) { return null; }
+    }
+
+    /// <summary>
+    /// El <c>friendlyname</c> que corresponde a este PC ahora mismo; null si no se puede saber. Con una preferencia de gráfica
+    /// para este ejecutable (Configuración › Pantalla › Gráficos) DXGI cuelga las salidas de la gráfica preferida y la
+    /// «principal» saldría falsa (medido en un portátil AMD + NVIDIA): entonces null.
+    /// </summary>
+    internal static string? GpuParaEstePc() =>
+        PreferenciaDeGrafica(Environment.ProcessPath) is not null ? null : ElegirGpu(GraficasDelPc(), GraficaDePrincipal());
+
+    /// <summary>
+    /// La preferencia de gráfica que Windows guarda para <paramref name="exe"/> (<c>HKCU\Software\Microsoft\DirectX\UserGpuPreferences</c>):
+    /// «ahorro de energía» o «alto rendimiento»; null si no hay o deja elegir a Windows.
+    /// </summary>
+    internal static string? PreferenciaDeGrafica(string? exe)
+    {
+        if (string.IsNullOrEmpty(exe)) return null;
+        try
+        {
+            using var clave = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\DirectX\UserGpuPreferences");
+            if (clave is null) return null;
+            var nombre = clave.GetValueNames().FirstOrDefault(n => string.Equals(n, exe, StringComparison.OrdinalIgnoreCase));
+            return nombre is null ? null : InterpretarPreferencia(clave.GetValue(nombre) as string);
+        }
+        catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return null; }
+    }
+
+    /// <summary>De «GpuPreference=2;» (o con otras opciones) al nombre que muestra Windows; null si es 0 o no está.</summary>
+    internal static string? InterpretarPreferencia(string? valor)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(valor ?? "", @"GpuPreference=(\d+)");
+        return !m.Success ? null : m.Groups[1].Value switch
+        {
+            "1" => "Ahorro de energía",
+            "2" => "Alto rendimiento",
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// ¿Es exactamente una configuración que escribimos, esta o la de una versión anterior (nadie la cambió)? Solo
@@ -356,14 +517,20 @@ internal static class Controlador
 
     /// <summary>
     /// Escribe la configuración si no hay una o si es una nuestra de una versión anterior: la del usuario no se pisa.
-    /// Devuelve si la cambió.
+    /// Devuelve si la cambió. <paramref name="gpu"/> null (no se sabe cuál): se conserva la gráfica que ya tenía, o «default».
     /// </summary>
-    private static bool EscribirConfiguracion()
+    private static bool EscribirConfiguracion(string? gpu)
     {
         var ruta = RutaConfiguracion();
-        if (File.Exists(ruta) && !EsConfiguracionAnterior(File.ReadAllText(ruta))) return false;
+        var actual = File.Exists(ruta) ? File.ReadAllText(ruta) : null;
+        var nueva = ConfiguracionPropia(gpu ?? (actual is null ? null : GpuDeConfiguracion(actual)) ?? GpuPorDefecto);
+        if (actual is not null)
+        {
+            // Una nuestra (con otra gráfica, o de una versión anterior) se actualiza; la del usuario no se pisa.
+            if (!EsConfiguracionPropia(actual) || actual.ReplaceLineEndings("\n").Trim() == nueva.ReplaceLineEndings("\n").Trim()) return false;
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(ruta)!);
-        File.WriteAllText(ruta, ConfiguracionPropia(), new UTF8Encoding(false));
+        File.WriteAllText(ruta, nueva, new UTF8Encoding(false));
         return true;
     }
 

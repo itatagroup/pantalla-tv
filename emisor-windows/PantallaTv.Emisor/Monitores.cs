@@ -141,7 +141,8 @@ internal static class Monitores
     /// <summary>Un monitor listo para transmitir y, si hubo que conectar el virtual, cómo quitarlo al terminar.</summary>
     /// <param name="Hz">Los Hz del monitor virtual recién conectado (para no mandar más cuadros que eso); null si no se sabe.</param>
     /// <param name="Aviso">Algo que se hizo con las pantallas y la persona tiene que saber (se pasó de «Duplicar» a «Extender»); null si nada.</param>
-    internal sealed record Preparado(Monitor Monitor, Action Liberar, int? Hz = null, string? Aviso = null);
+    /// <param name="AvisoGrafica">El monitor virtual lo dibuja otra gráfica que la pantalla principal (ya incluido en <paramref name="Aviso"/>); null si no.</param>
+    internal sealed record Preparado(Monitor Monitor, Action Liberar, int? Hz = null, string? Aviso = null, string? AvisoGrafica = null);
 
     /// <summary>
     /// ¿Es el monitor virtual? Se usa como segundo monitor de trabajo, donde medio segundo se nota en el ratón: la
@@ -177,7 +178,9 @@ internal static class Monitores
             throw new EmisionException("Windows conectó el monitor virtual pero no aparece en la lista de pantallas.");
         }
         if (virtualMonitor.AvisoTopologia is { } aviso) avisar?.Invoke(aviso);
-        return new Preparado(monitor, () => Soltar(virtualMonitor, resultado), virtualMonitor.ModoConectado?.Hz, virtualMonitor.AvisoTopologia);
+        var avisos = string.Join(" ", new[] { virtualMonitor.AvisoTopologia, virtualMonitor.AvisoGrafica }.Where(a => a is not null));
+        return new Preparado(monitor, () => Soltar(virtualMonitor, resultado), virtualMonitor.ModoConectado?.Hz,
+            avisos.Length > 0 ? avisos : null, virtualMonitor.AvisoGrafica);
     }
 
     /// <summary>Lo deja como estaba: lo quita si lo conectamos nosotros (y vuelve a «Duplicar» si lo cambiamos); si ya estaba, solo devuelve su modo.</summary>

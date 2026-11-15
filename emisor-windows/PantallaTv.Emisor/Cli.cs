@@ -87,6 +87,7 @@ internal static class Cli
             var r = v.Conectar(TimeSpan.FromSeconds(20));
             Console.WriteLine($"conectar: {r}");
             if (v.AvisoTopologia is { } aviso) Console.WriteLine(aviso);
+            if (v.AvisoGrafica is { } grafica) Console.WriteLine(grafica);
             if (r == MonitorVirtual.Resultado.Fallo)
             {
                 if (v.Motivo is { } motivo) Console.Error.WriteLine(motivo);

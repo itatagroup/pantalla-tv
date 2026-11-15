@@ -6,7 +6,8 @@ internal static class Program
     private static int Main(string[] args)
     {
         // Antes que nada: es el proceso elevado que lanzó el instalador o la bandeja (ver Controlador).
-        if (args.Contains("--instalar-controlador") || args.Contains("--quitar-controlador")) return Controlador.EjecutarOrdenElevada(args);
+        if (args.Contains("--instalar-controlador") || args.Contains("--quitar-controlador")
+            || args.Contains("--reubicar-monitor-virtual")) return Controlador.EjecutarOrdenElevada(args);
         if (args.Contains("--desinstalar")) return Instalador.Desinstalar(args);
         if (Instalacion.EsInstalador(args, Environment.ProcessPath)) return Instalador.Instalar(args);
         MonitorVirtual.RecuperarSiQuedoConectado();

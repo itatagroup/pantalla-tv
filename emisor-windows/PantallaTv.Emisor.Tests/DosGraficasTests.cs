@@ -179,6 +179,160 @@ public class ModoDelMonitorVirtualYaConectadoTests
     }
 }
 
+/// <summary>F1: el monitor virtual en la gráfica de la pantalla física (friendlyname de vdd_settings.xml).</summary>
+public class GraficaDelMonitorVirtualTests
+{
+    private const string Amd = "AMD Radeon(TM) Graphics";
+    private const string Nvidia = "NVIDIA GeForce RTX 3050 6GB Laptop GPU";
+
+    private static AdaptadorGpu G(long luid, string nombre, bool software = false) => new(luid, nombre, 0, 0, software);
+
+    [Fact]
+    public void Con_una_sola_grafica_de_hardware_deja_default()
+    {
+        Assert.Equal("default", Controlador.ElegirGpu([G(1, Amd)], Amd));
+        Assert.Equal("default", Controlador.ElegirGpu([], Amd));
+    }
+
+    [Fact]
+    public void Con_dos_graficas_elige_la_que_dibuja_la_principal()
+    {
+        Assert.Equal(Amd, Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia)], Amd));
+        Assert.Equal(Nvidia, Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia)], " " + Nvidia + " "));
+    }
+
+    [Fact]
+    public void La_misma_grafica_listada_dos_veces_cuenta_una_sola()
+    {
+        // En el portátil DXGI listó dos veces la NVIDIA, con LUID distintos.
+        Assert.Equal("default", Controlador.ElegirGpu([G(1, Nvidia), G(2, Nvidia)], Nvidia));
+        Assert.Equal(Amd, Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia), G(3, Nvidia)], Amd));
+    }
+
+    [Fact]
+    public void Las_graficas_por_software_no_cuentan()
+    {
+        Assert.Equal("default", Controlador.ElegirGpu([G(1, Amd), G(4, "Microsoft Basic Render Driver", software: true)], Amd));
+        Assert.Equal(Amd, Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia), G(4, "Microsoft Basic Render Driver", software: true)], Amd));
+    }
+
+    [Fact]
+    public void Con_varias_graficas_y_sin_saber_la_de_la_principal_no_decide()
+    {
+        // null: quien llama conserva la gráfica que ya tenía la configuración (no la devuelve a «default»).
+        Assert.Null(Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia)], null));
+        Assert.Null(Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia)], "  "));
+        Assert.Null(Controlador.ElegirGpu([G(1, Amd), G(2, Nvidia)], "Otra"));
+    }
+
+    [Theory]
+    [InlineData("GpuPreference=2;", "Alto rendimiento")]
+    [InlineData("GpuPreference=1;", "Ahorro de energía")]
+    [InlineData("SwapEffectUpgradeEnable=1;GpuPreference=2;", "Alto rendimiento")]
+    [InlineData("GpuPreference=0;", null)]
+    [InlineData("AppStatus=0;", null)]
+    [InlineData(null, null)]
+    public void La_preferencia_de_grafica_de_windows_se_lee(string? valor, string? esperado) =>
+        Assert.Equal(esperado, Controlador.InterpretarPreferencia(valor));
+
+    [Fact]
+    public void La_configuracion_lleva_el_friendlyname_pedido_escapado()
+    {
+        Assert.Equal("default", Controlador.GpuDeConfiguracion(Controlador.ConfiguracionPropia()));
+        Assert.Equal(Amd, Controlador.GpuDeConfiguracion(Controlador.ConfiguracionPropia(Amd)));
+        var rara = "Gráfica <A&B> \"x\"";
+        var xml = Controlador.ConfiguracionPropia(rara);
+        Assert.Contains("&lt;A&amp;B&gt;", xml);
+        Assert.Equal(rara, Controlador.GpuDeConfiguracion(xml)); // XML válido, y el nombre vuelve igual
+        Assert.Equal("default", Controlador.GpuDeConfiguracion(Controlador.ConfiguracionPropia("  ")));
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData(Amd)]
+    [InlineData(Nvidia)]
+    [InlineData("Gráfica <A&B>")]
+    public void Reconoce_como_propia_la_configuracion_con_cualquier_friendlyname(string gpu)
+    {
+        var propia = Controlador.ConfiguracionPropia(gpu);
+        Assert.True(Controlador.EsConfiguracionPropia(propia));
+        Assert.True(Controlador.EsConfiguracionPropia(propia.ReplaceLineEndings("\n")));
+        Assert.False(Controlador.EsConfiguracionAnterior(propia)); // con los modos de ahora: no hay nada que actualizar
+        Assert.False(Controlador.EsConfiguracionPropia(propia.Replace("<count>1</count>", "<count>2</count>")));
+    }
+
+    [Fact]
+    public void Las_configuraciones_anteriores_se_reconocen_con_cualquier_friendlyname()
+    {
+        foreach (var anterior in Controlador.ConfiguracionesAnteriores)
+        {
+            Assert.True(Controlador.EsConfiguracionPropia(anterior));
+            Assert.True(Controlador.EsConfiguracionAnterior(anterior));
+            var conAmd = anterior.Replace("<friendlyname>default</friendlyname>", $"<friendlyname>{Amd}</friendlyname>");
+            Assert.NotEqual(anterior, conAmd);
+            Assert.True(Controlador.EsConfiguracionPropia(conAmd));
+            Assert.True(Controlador.EsConfiguracionAnterior(conAmd));
+        }
+        var de010 = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Datos", "configuracion-0.10.xml"));
+        Assert.True(Controlador.EsConfiguracionPropia(de010.Replace("<friendlyname>default</friendlyname>", $"<friendlyname>{Nvidia}</friendlyname>")));
+    }
+
+    [Fact]
+    public void Una_configuracion_del_usuario_con_otra_gpu_y_otros_cambios_no_es_nuestra()
+    {
+        var suya = Controlador.ConfiguracionPropia(Amd).Replace("<HardwareCursor>true<", "<HardwareCursor>false<");
+        Assert.False(Controlador.EsConfiguracionPropia(suya));
+    }
+
+    private static readonly IReadOnlyList<AdaptadorGpu> DosGraficas = [G(1, Amd), G(2, Nvidia)];
+
+    [Fact]
+    public void Avisa_si_el_virtual_lo_dibuja_otra_grafica_y_se_puede_mover()
+    {
+        var aviso = MonitorVirtual.TextoAvisoGrafica(Nvidia, Amd, DosGraficas, configuracionNuestra: true, @"C:\VirtualDisplayDriver\vdd_settings.xml");
+        Assert.NotNull(aviso);
+        Assert.Contains($"«{Nvidia}»", aviso);
+        Assert.Contains($"«{Amd}»", aviso);
+        Assert.Contains("se copia", aviso);
+        Assert.Contains("«Avanzado»", aviso);
+        Assert.Contains("administrador", aviso);
+    }
+
+    [Fact]
+    public void Si_la_configuracion_no_es_nuestra_dice_que_hay_que_editarla_a_mano_y_donde()
+    {
+        var ruta = @"C:\VirtualDisplayDriver\vdd_settings.xml";
+        var aviso = MonitorVirtual.TextoAvisoGrafica(Nvidia, Amd, DosGraficas, configuracionNuestra: false, ruta);
+        Assert.NotNull(aviso);
+        Assert.Contains($"<friendlyname>{Amd}</friendlyname>", aviso);
+        Assert.Contains(ruta, aviso);
+        Assert.DoesNotContain("«Avanzado»", aviso);
+    }
+
+    [Fact]
+    public void No_avisa_si_coinciden_si_no_se_sabe_o_si_hay_una_sola_grafica()
+    {
+        Assert.Null(MonitorVirtual.TextoAvisoGrafica(Amd, amdEnMinusculas(), DosGraficas, true, "x"));
+        Assert.Null(MonitorVirtual.TextoAvisoGrafica(null, Amd, DosGraficas, true, "x"));
+        Assert.Null(MonitorVirtual.TextoAvisoGrafica(Nvidia, null, DosGraficas, true, "x"));
+        Assert.Null(MonitorVirtual.TextoAvisoGrafica(Nvidia, Amd, [G(2, Nvidia), G(3, Nvidia)], true, "x")); // la misma dos veces
+        Assert.Null(MonitorVirtual.TextoAvisoGrafica(Nvidia, Amd, [G(1, Amd), G(4, "Basic Render", software: true)], true, "x"));
+
+        static string amdEnMinusculas() => Amd.ToLowerInvariant();
+    }
+
+    [Fact]
+    public void El_diagnostico_dice_si_coincide_con_la_principal()
+    {
+        var igual = Diagnostico.DescribirGrafica(Amd, Amd, Amd);
+        Assert.Contains("la dibuja «" + Amd + "»", igual);
+        Assert.Contains("friendlyname configurado «" + Amd + "»", igual);
+        Assert.Contains("→ coincide", igual);
+        Assert.Contains("NO coincide", Diagnostico.DescribirGrafica(Nvidia, "default", Amd));
+        Assert.Contains("no se puede comparar", Diagnostico.DescribirGrafica(null, null, Amd));
+    }
+}
+
 /// <summary>La parte de la copia entre gráficas que se puede probar sin dos gráficas.</summary>
 public class PuenteGpuTests
 {

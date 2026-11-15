@@ -156,6 +156,8 @@ internal static class Diagnostico
                     return lineas;
                 }
                 lineas.Add($"aparece como {monitor.Nombre} {monitor.Ancho}×{monitor.Alto} · adaptador {monitor.Adaptador} ({monitor.NombreAdaptador}), salida {monitor.Salida}");
+                lineas.Add(DescribirGrafica(virtualMonitor.GraficaQueLoDibuja, Controlador.GpuConfigurada(), virtualMonitor.GraficaDePrincipal));
+                if (virtualMonitor.AvisoGrafica is { } avisoGrafica) lineas.Add("gráfica: " + avisoGrafica);
                 lineas.Add("captura: " + ProbarNativa(monitor));
             }
             finally
@@ -175,6 +177,17 @@ internal static class Diagnostico
             lineas.Add($"la prueba falló: {e.Message}");
         }
         return lineas;
+    }
+
+    /// <summary>Una línea: qué gráfica dibuja el monitor virtual, el <c>friendlyname</c> configurado y si coincide con la de la pantalla principal.</summary>
+    internal static string DescribirGrafica(string? dibuja, string? configurada, string? principal)
+    {
+        static string Texto(string? t) => string.IsNullOrWhiteSpace(t) ? "(no se sabe)" : $"«{t.Trim()}»";
+        var coincide = string.IsNullOrWhiteSpace(dibuja) || string.IsNullOrWhiteSpace(principal)
+            ? "no se puede comparar"
+            : string.Equals(dibuja.Trim(), principal.Trim(), StringComparison.OrdinalIgnoreCase) ? "coincide con la de la pantalla principal" : "NO coincide con la de la pantalla principal";
+        return $"gráfica del monitor virtual: la dibuja {Texto(dibuja)}; friendlyname configurado {Texto(configurada)}; "
+               + $"la pantalla principal la dibuja {Texto(principal)} → {coincide}";
     }
 
     private static Encoding CodificacionAnsi()

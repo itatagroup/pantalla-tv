@@ -69,6 +69,18 @@ internal sealed class MonitorVirtual
     /// <summary>Qué se hizo con las pantallas para poder conectarlo (se pasó de «Duplicar» a «Extender»), para mostrárselo a la persona; null si nada.</summary>
     public string? AvisoTopologia { get; private set; }
 
+    /// <summary>La gráfica (descripción DXGI) que dibuja el monitor virtual tras el último <see cref="Conectar"/>; null si no se supo.</summary>
+    public string? GraficaQueLoDibuja { get; private set; }
+
+    /// <summary>La gráfica que dibuja la pantalla principal tras el último <see cref="Conectar"/>; null si no se supo.</summary>
+    public string? GraficaDePrincipal { get; private set; }
+
+    /// <summary>
+    /// Si el monitor virtual lo dibuja otra gráfica que la pantalla principal (y hay más de una de hardware), el aviso en palabras
+    /// (cada cuadro se copia de una a otra); null si coinciden o no se sabe.
+    /// </summary>
+    public string? AvisoGrafica { get; private set; }
+
     /// <summary>Por qué falló el último <see cref="Conectar"/>, en palabras para la persona; null si no hay un motivo más preciso.</summary>
     public string? Motivo { get; private set; }
 
@@ -107,10 +119,14 @@ internal sealed class MonitorVirtual
         ModoConectado = null;
         ModoAnterior = null;
         AvisoTopologia = null;
+        AvisoGrafica = null;
+        GraficaQueLoDibuja = null;
+        GraficaDePrincipal = null;
         Motivo = null;
         if (EstaConectado())
         {
             AjustarModoDelConectado(preferido);
+            EvaluarGrafica();
             return Resultado.YaEstaba;
         }
 
@@ -161,6 +177,7 @@ internal sealed class MonitorVirtual
                 // Lo que quedó de verdad: si Windows no lo respetó, el vídeo saldría de otro tamaño que el pedido.
                 if (LimitesActuales(Dispositivo) is { } r && (r.Width, r.Height) != (elegido.Value.Ancho, elegido.Value.Alto))
                     Registro.Error($"monitor virtual {Dispositivo}: se pidió {elegido.Value.Ancho}×{elegido.Value.Alto} y quedó en {r.Width}×{r.Height}");
+                EvaluarGrafica();
                 return Resultado.Conectado;
             }
             Thread.Sleep(250);
@@ -170,6 +187,40 @@ internal sealed class MonitorVirtual
         Registro.Error($"monitor virtual {Dispositivo}: no apareció en {espera.TotalSeconds:0} s (en el escritorio: {EstaConectado()}, "
                        + $"como pantalla: {Monitores.Pantallas().Any(p => EsEste(p.Nombre))}, en DXGI: {Dxgi.Salidas().Any(s => EsEste(s.Dispositivo))})");
         return Abandonar();
+    }
+
+    /// <summary>Mira qué gráfica dibuja el monitor virtual y cuál la pantalla principal; si son distintas, lo anota y deja el aviso.</summary>
+    private void EvaluarGrafica()
+    {
+        try
+        {
+            GraficaQueLoDibuja = Dxgi.Salidas().FirstOrDefault(s => EsEste(s.Dispositivo))?.NombreAdaptador.Trim();
+            GraficaDePrincipal = Controlador.GraficaDePrincipal();
+            AvisoGrafica = TextoAvisoGrafica(GraficaQueLoDibuja, GraficaDePrincipal, Controlador.GraficasDelPc(),
+                Controlador.ConfiguracionEsNuestra(), Controlador.RutaConfiguracion());
+            if (AvisoGrafica is not null) Registro.Anotar($"monitor virtual {Dispositivo}: {AvisoGrafica}");
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Registro.Error($"monitor virtual {Dispositivo}: no se pudo saber qué gráfica lo dibuja", e);
+        }
+    }
+
+    /// <summary>
+    /// El aviso de que el monitor virtual y la pantalla principal las dibujan gráficas distintas, o null (iguales, no se sabe, o solo
+    /// hay una gráfica de hardware: no hay nada que mover). Distingue si la configuración es la nuestra (se puede mover con un botón)
+    /// o la cambió la persona (hay que editarla a mano).
+    /// </summary>
+    internal static string? TextoAvisoGrafica(string? dibuja, string? principal, IReadOnlyList<Nativa.AdaptadorGpu> graficas,
+        bool configuracionNuestra, string rutaConfiguracion)
+    {
+        if (string.IsNullOrWhiteSpace(dibuja) || string.IsNullOrWhiteSpace(principal)) return null;
+        if (string.Equals(dibuja.Trim(), principal.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
+        if (Controlador.NombresDeHardware(graficas).Count < 2) return null;
+        var inicio = $"El monitor virtual lo dibuja la gráfica «{dibuja.Trim()}» y la pantalla la «{principal.Trim()}»: cada cuadro se copia de una a otra (más CPU).";
+        return configuracionNuestra
+            ? $"{inicio} Se puede mover a la «{principal.Trim()}» con «Mover el monitor virtual a la gráfica de la pantalla», en «Avanzado» (pide permiso de administrador)."
+            : $"{inicio} Su configuración no es la de Pantalla TV: para moverlo, pon <friendlyname>{principal.Trim()}</friendlyname> en {rutaConfiguracion} y reinicia el controlador (Administrador de dispositivos: deshabilitar y habilitar).";
     }
 
     /// <summary>Pasa de «Duplicar» a «Extender». Si no se puede, deja el motivo y devuelve false.</summary>

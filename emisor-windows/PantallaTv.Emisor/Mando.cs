@@ -234,12 +234,42 @@ internal sealed partial class Mando : IDisposable
     /// <summary>«Silenciar el PC» solo tiene sentido si se envía el sonido.</summary>
     public bool PuedeSilenciar => PuedeCambiarAjustes && Ajustes.ConAudio;
 
-    public string TextoInstalarVirtual => InstalandoControlador && !_quitandoControlador ? "Instalando el monitor virtual…" : "Instalar el monitor virtual…";
+    public string TextoInstalarVirtual => InstalandoControlador && !_quitandoControlador && !_reubicandoControlador ? "Instalando el monitor virtual…" : "Instalar el monitor virtual…";
+
+    private bool _reubicandoControlador;
+
+    /// <summary>
+    /// Si la última vez que se conectó el monitor virtual lo dibujaba otra gráfica que la pantalla principal, el aviso (el mismo que
+    /// se mostró al transmitir); null si coinciden, o si aún no se ha conectado en esta sesión.
+    /// </summary>
+    public string? AvisoGrafica { get; private set; }
+
+    /// <summary>¿Se muestra el botón «Mover el monitor virtual a la gráfica de la pantalla»? Solo si hace falta y si la configuración es la nuestra.</summary>
+    public bool PuedeReubicarMonitorVirtual => (AvisoGrafica is not null && _graficaReubicable && PuedeCambiarAjustes && !InstalandoControlador)
+                                               || _reubicandoControlador;
+
+    /// <summary>Si la configuración era la nuestra cuando se fijó <see cref="AvisoGrafica"/> (se calcula una vez, no en cada refresco).</summary>
+    private bool _graficaReubicable;
+
+    public string TextoReubicarVirtual => _reubicandoControlador ? "Moviendo…" : "Mover el monitor virtual a la &gráfica de la pantalla…";
+
+    /// <summary>Mueve el monitor virtual a la gráfica de la pantalla principal (pide UAC): reescribe su configuración y lo reinicia.</summary>
+    public void ReubicarMonitorVirtual()
+    {
+        if (InstalandoControlador || !PuedeReubicarMonitorVirtual || !PuedeCambiarAjustes) return; // transmitiendo podría estar usándolo
+        _reubicandoControlador = true;
+        OperarControlador(quitar: false, Controlador.ReubicarConPermiso, r => r.Resultado switch
+        {
+            Controlador.Resultado.Hecho => ("Monitor virtual movido a la gráfica de la pantalla." + (r.Detalle is null ? "" : " " + r.Detalle), ToolTipIcon.Info),
+            Controlador.Resultado.Rechazado => ("El monitor virtual no se movió: no se dio permiso de administrador.", ToolTipIcon.Warning),
+            _ => ("El monitor virtual no se pudo mover: " + r.Detalle, ToolTipIcon.Error),
+        }, "reubicar");
+    }
 
     /// <summary>¿Está el monitor virtual instalado? (Para ofrecer reinstalarlo o quitarlo en «Avanzado».)</summary>
     public static bool HayMonitorVirtual => Controlador.Instalado();
 
-    public string TextoReinstalarVirtual(bool hay) => InstalandoControlador && !_quitandoControlador
+    public string TextoReinstalarVirtual(bool hay) => InstalandoControlador && !_quitandoControlador && !_reubicandoControlador
         ? (hay ? "Reinstalando…" : "Instalando…")
         : (hay ? "&Reinstalar…" : "Instala&r…");
 
@@ -258,7 +288,8 @@ internal sealed partial class Mando : IDisposable
               + (p.Horizontal.Alto > LineasAutomaticas ? $" (hasta {LineasAutomaticas} líneas; más, eligiéndolo aquí). " : ". ")
             : $"«{tele.Nombre}» no informa su pantalla (versión anterior a la 0.8.0): en automático se usa 1920×1080 a 60 Hz. ";
         if (Controlador.ConfiguracionDesactualizada())
-            texto += "Reinstala el monitor virtual para tener más tamaños y frecuencias (pide permiso de administrador).";
+            texto += "Reinstala el monitor virtual para tener más tamaños y frecuencias (pide permiso de administrador). ";
+        if (AvisoGrafica is { } grafica) texto += grafica;
         return texto.Trim();
     }
 
@@ -357,6 +388,11 @@ internal sealed partial class Mando : IDisposable
                     EnLaInterfaz(() => Aviso?.Invoke(avisoPantallas, ToolTipIcon.Info));
                 var monitor = preparado.Monitor; // en píxeles reales (el programa es consciente del DPI)
                 var esVirtual = Monitores.EsElVirtual(monitor);
+                if (esVirtual)
+                {
+                    var reubicable = preparado.AvisoGrafica is not null && Controlador.ConfiguracionEsNuestra(); // fuera del hilo de la interfaz
+                    EnLaInterfaz(() => { AvisoGrafica = preparado.AvisoGrafica; _graficaReubicable = reubicable; Cambio?.Invoke(); });
+                }
                 EnLaInterfaz(() => { vivo.Pantalla = esVirtual ? $"Monitor virtual · {monitor.Ancho}×{monitor.Alto}" : monitor.ToString(); Cambio?.Invoke(); });
                 // Más cuadros que los Hz de la pantalla (la del monitor virtual o la de la tele) no se ven y gastan más.
                 var fps = Math.Min(a.Fps, preparado.Hz ?? (tele?.Hz is int hz && hz >= 24 ? hz : a.Fps));
@@ -450,13 +486,13 @@ internal sealed partial class Mando : IDisposable
     }
 
     private void OperarControlador(bool quitar, Func<Controlador.Respuesta> operacion,
-        Func<Controlador.Respuesta, (string Texto, ToolTipIcon Icono)> aviso)
+        Func<Controlador.Respuesta, (string Texto, ToolTipIcon Icono)> aviso, string? accion = null)
     {
         if (InstalandoControlador) return;
         InstalandoControlador = true;
         _quitandoControlador = quitar;
         Cambio?.Invoke();
-        var accion = quitar ? "quitar" : "instalar";
+        accion ??= quitar ? "quitar" : "instalar";
         Task.Run(() =>
         {
             Controlador.Respuesta r;
@@ -470,6 +506,9 @@ internal sealed partial class Mando : IDisposable
             {
                 InstalandoControlador = false;
                 _quitandoControlador = false;
+                // Reubicar, reinstalar (escribe la gráfica de la pantalla) o quitar: el aviso ya no vale.
+                if (r.Resultado == Controlador.Resultado.Hecho) AvisoGrafica = null;
+                _reubicandoControlador = false;
                 ActualizarPantallas(); // ahora está (o ya no está) el virtual
                 var (texto, icono) = aviso(r);
                 Aviso?.Invoke(texto, icono);
