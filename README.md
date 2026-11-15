@@ -14,7 +14,7 @@ Software libre ([GPL-3.0](LICENSE)), en español.
 - `herramientas/` — scripts de empaquetado y de medición. `docs/` — protocolo y guías.
 
 La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con poca CPU); **ffmpeg no hace falta**
-(si lo tienes instalado, se usa de respaldo). Solo se probó en una gráfica AMD: si tienes NVIDIA o Intel, mira
+(si lo tienes instalado, se usa de respaldo; si no, el emisor puede descargarlo con tu confirmación). Solo se probó en una gráfica AMD: si tienes NVIDIA o Intel, mira
 `docs/prueba-otro-pc.md`. El contenido con DRM (Netflix, etc.) se captura en negro.
 
 ## Qué NO hace
@@ -23,6 +23,9 @@ La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con 
   Lo único que sale a internet es la **búsqueda de actualizaciones**, y **solo cuando pulsas el botón** «Buscar
   actualizaciones»: ninguna app se conecta sola. Es un GET sin datos al manifiesto firmado de esa app en este
   repositorio de GitHub (detalle en «Actualizaciones», más abajo). Nada se instala sin que lo confirmes.
+  La única otra salida es **descargar ffmpeg** (el respaldo de la captura), que el emisor de Windows hace
+  **solo si pulsas «Descargar ffmpeg» en «Avanzado» y confirmas**: una versión fijada, con su huella SHA-256
+  comprobada (ver `THIRD-PARTY.md`).
 - Lo único que usa la red es esto, y solo dentro de tu red local:
   - **Descubrimiento**: la tele manda cada 2 s un anuncio **UDP** de difusión (broadcast) al puerto **5601**; el
     PC escucha ahí para mostrar las teles que ve (o puedes escribir la IP a mano).
@@ -168,7 +171,8 @@ actualizaciones que se instalen encima de la versión anterior. Nunca la subas a
     para comparar el manejo del monitor virtual; usa su propio controlador, distinto del que se incluye aquí.
   - [Moonlight Android](https://github.com/moonlight-stream/moonlight-android): estudiado para comparar cómo
     decodifica en Android con `MediaCodec`.
-- **[ffmpeg](https://ffmpeg.org)** (opcional, **no incluido**): si lo tienes instalado, se usa de respaldo.
+- **[ffmpeg](https://ffmpeg.org)** (opcional, **no incluido**): si lo tienes instalado, se usa de respaldo; también se
+  puede descargar desde «Avanzado», con confirmación (ver `THIRD-PARTY.md`).
 
 Las licencias de todo lo que se usa: [THIRD-PARTY.md](THIRD-PARTY.md).
 

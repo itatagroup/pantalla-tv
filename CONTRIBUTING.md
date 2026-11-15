@@ -17,7 +17,7 @@
 
 ## Reglas
 
-1. **Sin telemetría ni conexiones nuevas a internet.** Pantalla TV solo habla por la red local (ver el README). La única excepción prevista es la búsqueda de actualizaciones, opcional y que el usuario puede apagar.
+1. **Sin telemetría ni conexiones nuevas a internet.** Pantalla TV solo habla por la red local (ver el README). Las únicas excepciones son la búsqueda de actualizaciones y la descarga de ffmpeg, las dos opcionales y solo cuando el usuario las pide.
    Un cambio que agregue una conexión externa, un servicio de terceros, cuentas o análisis de uso no se acepta.
 2. **Apps de Android sin dependencias** (nada de AndroidX ni librerías): los APK deben seguir siendo diminutos.
 3. **Pruebas en verde**: `dotnet test emisor-windows/PantallaTv.sln -c Release` y, si tocas Android, los dos builds
