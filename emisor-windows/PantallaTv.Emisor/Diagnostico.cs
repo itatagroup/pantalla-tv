@@ -37,7 +37,7 @@ internal static class Diagnostico
                 {
                     var d = ad.Description1;
                     L($"[{a}] {d.Description.Trim()} · {Fabricante(d.VendorId)} (VEN_{d.VendorId:X4} DEV_{d.DeviceId:X4}) · "
-                      + $"{d.DedicatedVideoMemory / 1048576} MB · LUID {d.Luid.HighPart:X8}:{d.Luid.LowPart:X8}"
+                      + $"{Nativa.Gpu.MemoriaDedicada(d) / 1048576} MB · LUID {d.Luid.HighPart:X8}:{d.Luid.LowPart:X8}"
                       + ((d.Flags & AdapterFlags.Software) != 0 ? " · por software" : ""));
                     for (uint s = 0; ad.EnumOutputs(s, out var sal).Success; s++)
                         using (sal)

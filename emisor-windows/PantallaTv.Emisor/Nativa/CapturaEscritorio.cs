@@ -87,13 +87,13 @@ internal sealed class CapturaEscritorio : IDisposable
         try
         {
             var raton = _cursor?.Actualizar(_dup, info) ?? false;
-            if (info.LastPresentTime != 0)
+            if (EsCuadroNuevo(info.LastPresentTime, info.AccumulatedFrames))
             {
                 using var textura = recurso!.QueryInterface<ID3D11Texture2D>();
                 _ctx.CopyResource(_limpia, textura);
                 _hayImagen = true;
                 Acumulados = (int)Math.Max(1u, info.AccumulatedFrames);
-                CuandoQpc = info.LastPresentTime;
+                CuandoQpc = info.LastPresentTime != 0 ? info.LastPresentTime : System.Diagnostics.Stopwatch.GetTimestamp();
                 resultado = Resultado.Nuevo;
             }
             else if (raton && _hayImagen) resultado = Resultado.SoloRaton;
@@ -107,6 +107,14 @@ internal sealed class CapturaEscritorio : IDisposable
         Componer();
         return resultado;
     }
+
+    /// <summary>
+    /// Si DXGI trae imagen nueva. No basta con <c>LastPresentTime</c>: en un monitor indirecto (IddCx, como el monitor
+    /// virtual) dibujado por otra gráfica (portátil AMD + NVIDIA, 15/11/2026) los cambios llegan con <c>LastPresentTime</c>
+    /// en 0 y <c>AccumulatedFrames</c> &gt; 0, y se tomaban por «solo ratón»: la tele quedaba congelada. Como Sunshine,
+    /// cualquiera de los dos cuenta.
+    /// </summary>
+    internal static bool EsCuadroNuevo(long ultimaPresentacion, uint acumulados) => ultimaPresentacion != 0 || acumulados != 0;
 
     private void Componer()
     {

@@ -20,6 +20,25 @@ public class PlanCodificadorTests
     private static IReadOnlyList<IntentoCodificador> Plan(AdaptadorGpu dueno, AdaptadorGpu[] todos, Func<AdaptadorGpu, int>? codificadores = null) =>
         PlanCodificador.Ordenar(dueno, todos, codificadores ?? (_ => 1));
 
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(512L << 20)]
+    [InlineData(6001L << 20)] // RTX 3050 de 6 GB (portátil de César, 15/11/2026): pasaba de uint y la nativa se descartaba
+    [InlineData(24L << 30)]
+    public void La_memoria_de_video_de_mas_de_4_GB_no_desborda(long bytes)
+    {
+        var d = new AdapterDescription1 { DedicatedVideoMemory = (nuint)bytes };
+        Assert.Equal(bytes, Gpu.MemoriaDedicada(d));
+    }
+
+    [Theory]
+    [InlineData(123456L, 1u, true)]  // monitor normal: presentación con hora
+    [InlineData(0L, 1u, true)]       // monitor virtual en otra gráfica: sin hora, pero con cuadros acumulados
+    [InlineData(123456L, 0u, true)]
+    [InlineData(0L, 0u, false)]      // solo el puntero
+    public void Un_cuadro_es_nuevo_con_hora_de_presentacion_o_con_cuadros_acumulados(long ultimaPresentacion, uint acumulados, bool nuevo) =>
+        Assert.Equal(nuevo, CapturaEscritorio.EsCuadroNuevo(ultimaPresentacion, acumulados));
+
     [Fact]
     public void Primero_la_gpu_duena_de_la_salida_y_al_final_ffmpeg()
     {

@@ -48,6 +48,8 @@ internal sealed class CodificadorMf : ICodificador
     private volatile bool _cerrando;
     private volatile Exception? _error;
     private readonly List<string> _avisos = [];
+    /// <summary>En qué paso de <see cref="Preparar"/> va: si una MFT se niega, el registro dice dónde.</summary>
+    private string _paso = "";
     private static readonly object Uno = 1u;
 
     public string Descripcion { get; }
@@ -85,7 +87,7 @@ internal sealed class CodificadorMf : ICodificador
                     }
                     catch (Exception e) when (e is SharpGenException or COMException or InvalidOperationException or InvalidCastException)
                     {
-                        descartadas.Add($"{nombreMft}: {(e is SharpGenException s ? $"{s.Message.Trim()} (0x{s.HResult:X8})" : e.Message)}");
+                        descartadas.Add($"{nombreMft}: en {_paso}: {(e is SharpGenException s ? $"{s.Message.Trim()} (0x{s.HResult:X8})" : e.Message)}");
                         Soltar();
                         try { activar.ShutdownObject(); } catch (SharpGenException) { }
                     }
@@ -208,8 +210,10 @@ internal sealed class CodificadorMf : ICodificador
     private void Preparar(IMFActivate activar, ID3D11Device dev, int ancho, int alto, int fps, int kbps, bool vbr)
     {
         _avisos.Clear();
+        _paso = "ActivateObject";
         _mft = activar.ActivateObject<IMFTransform>();
 
+        _paso = "atributos";
         using (var atr = _mft.Attributes)
         {
             // Este código depende de los eventos de una MFT asíncrona que lea texturas D3D11: si no lo es, a la siguiente.
@@ -223,10 +227,12 @@ internal sealed class CodificadorMf : ICodificador
         _eventos = _mft.QueryInterface<IMFMediaEventGenerator>();
         _apagar = _mft.QueryInterfaceOrNull<IMFShutdown>();
 
+        _paso = "SetD3DManager";
         _gestor = MediaFactory.MFCreateDXGIDeviceManager();
         _gestor.ResetDevice(dev).CheckError();
         _mft.ProcessMessage(TMessageType.MessageSetD3DManager, (nuint)_gestor.NativePointer);
 
+        _paso = "ICodecAPI";
         try { _api = (ICodecApi)Marshal.GetObjectForIUnknown(_mft.NativePointer); }
         catch (InvalidCastException) { _avisos.Add("sin ICodecAPI"); }
 
@@ -253,8 +259,10 @@ internal sealed class CodificadorMf : ICodificador
             tipo.Set(Guids.PixelAspect, (1ul << 32) | 1u);
             tipo.Set(Guids.InterlaceMode, 2u); // progresivo
             tipo.Set(Guids.Mpeg2Profile, 100u); // High
+            _paso = "SetOutputType";
             _mft.SetOutputType(0, tipo, 0);
         }
+        _paso = "SetInputType";
         using (var entrada = MediaFactory.MFCreateMediaType())
         {
             entrada.Set(Guids.MajorType, Guids.Video);

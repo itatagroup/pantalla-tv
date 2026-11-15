@@ -38,8 +38,15 @@ internal static class Gpu
     public static AdaptadorGpu Describir(IDXGIAdapter1 adaptador)
     {
         var d = adaptador.Description1;
-        return new AdaptadorGpu(ComoLong(d.Luid), d.Description.Trim(), d.VendorId, (long)d.DedicatedVideoMemory, (d.Flags & AdapterFlags.Software) != 0);
+        return new AdaptadorGpu(ComoLong(d.Luid), d.Description.Trim(), d.VendorId, MemoriaDedicada(d), (d.Flags & AdapterFlags.Software) != 0);
     }
+
+    /// <summary>
+    /// La memoria de vídeo dedicada en bytes. <c>DedicatedVideoMemory</c> es un <c>PointerUSize</c> de SharpGen y un
+    /// <c>(long)</c> directo pasa por su conversión a <c>uint</c>, que es <i>checked</i>: con más de 4 GB (una RTX 3050 de 6 GB)
+    /// lanzaba <see cref="OverflowException"/> y la tubería nativa se descartaba entera. Se convierte por <c>nuint</c>.
+    /// </summary>
+    public static long MemoriaDedicada(AdapterDescription1 d) => (long)(ulong)(nuint)d.DedicatedVideoMemory;
 
     /// <summary>Todas las gráficas que ve DXGI (con o sin pantallas conectadas).</summary>
     public static IReadOnlyList<AdaptadorGpu> Adaptadores()

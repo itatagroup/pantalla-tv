@@ -193,6 +193,29 @@ tubería nativa de punta a punta con el plan, y la descarga contra un servidor f
   gráfica con un alto alineado distinto daría una imagen con la croma corrida. Mirar el registro: cada intento y su HRESULT.
 - Lo que cuesta la copia por CPU a 1080p60 (esperable: algún punto de CPU y un cuadro más de latencia).
 
+### Probado en un portátil AMD + NVIDIA (15/11/2026)
+
+Ryzen 5 8645HS con Radeon 760M (integrada, dibuja el principal a 144 Hz) y RTX 3050 6 GB Laptop (controlador
+610.91); el monitor virtual de MTT queda colgado de la NVIDIA. Hubo que arreglar dos cosas:
+
+1. **La nativa se descartaba con «Arithmetic operation resulted in an overflow»** antes de probar ningún codificador:
+   `DedicatedVideoMemory` (un `PointerUSize` de SharpGen) pasaba por una conversión *checked* a `uint`, y 6 GB no caben.
+   Ahora se lee con `Gpu.MemoriaDedicada` (también en `--diagnostico`). Cualquier gráfica de más de 4 GB lo provocaba.
+2. **En el monitor virtual la tele se quedaba congelada**: DXGI entregaba los cambios con `LastPresentTime = 0` y
+   `AccumulatedFrames > 0`, y se tomaban por «solo ratón». Ahora cuenta como cuadro nuevo cualquiera de los dos (como
+   Sunshine); con el virtual quieto siguen llegando 0–2 por segundo.
+
+Qué pasa con el plan del codificador en ese portátil (se ve en el registro):
+
+- Intento 1 (la NVIDIA, misma gráfica) e intento 2 (la otra entrada de la NVIDIA en DXGI): la **MFT de NVIDIA no se deja
+  crear** (`E_UNEXPECTED` en `ActivateObject`, y también con `CoCreateInstance` directo), y la de AMD no acepta un
+  dispositivo de la NVIDIA (`E_FAIL` en `SetD3DManager`). Los errores dicen ahora en qué paso falló cada MFT.
+- **Intento 3 (copiar a la AMD) funciona.** 60 s a la tele con la fuente de 60 fps en el virtual: 64–65 fps enviados,
+  0 tirados, 0 reinicios, codificador 19,5 ms de media, 0,7–0,9 Mb/s, ~0,4 núcleos (copia por CPU incluida).
+- `MFTEnum2` con `MFT_ENUM_ADAPTER_LUID` **no filtra** en ese PC: devuelve las dos MFT para cualquier gráfica.
+- La AMD 760M **no retiene** cuadros (la del PC de pruebas sí): el detector lo vio solo.
+- No se probó el paso «Duplicar» → «Extender» (el portátil ya estaba en «Extender»).
+
 ## Velocidad y búfer
 
 - **60 fps**: la tubería `amf` de ffmpeg termina el filtro con `format=nv12` (conversión en CPU, ~2 núcleos).
