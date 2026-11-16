@@ -90,19 +90,42 @@ internal sealed class TrayApp : ApplicationContext
         }
         _menu.Items.Add(new ToolStripSeparator());
 
-        if (m.Transmitiendo)
+        var transmitiendo = m.Transmitiendo;
+        m.ActualizarPantallas(); // antes de mirar qué pantallas quedan libres
+        if (transmitiendo)
         {
-            _menu.Items.Add("Detener transmisión", null, (_, _) => m.Detener());
+            var ts = m.Transmisiones;
+            _menu.Items.Add(new ToolStripMenuItem(ts.Count == 1 ? "1 transmisión en curso" : $"{ts.Count} transmisiones en curso") { Enabled = false });
+            if (ts.Count == 1)
+            {
+                _menu.Items.Add($"{Mando.TextoBotonFila(ts[0])} transmisión", null, (_, _) => m.Detener());
+            }
+            else
+            {
+                foreach (var t in ts)
+                {
+                    var una = t;
+                    _menu.Items.Add($"{Mando.TextoBotonFila(una)} {Mando.TituloFila(una)}", null, (_, _) => m.Detener(una));
+                }
+                _menu.Items.Add("Detener todas", null, (_, _) => m.Detener());
+            }
+            _menu.Items.Add(new ToolStripSeparator());
+        }
+        // Sin transmitir, o con menos de 4 y alguna pantalla libre: se puede sumar otra (a una TV libre o escribiendo su IP) (con la pantalla de «Qué pantalla se transmite»).
+        var motivoNoOtra = transmitiendo ? m.MotivoNoOtra() : null;
+        if (motivoNoOtra is not null)
+        {
+            _menu.Items.Add(new ToolStripMenuItem(motivoNoOtra) { Enabled = false });
         }
         else
         {
-            var destinos = m.Destinos();
-            if (!Mando.HayTvAnunciada(destinos))
+            var destinos = m.DestinosLibres();
+            if (!transmitiendo && !Mando.HayTvAnunciada(destinos))
                 _menu.Items.Add(new ToolStripMenuItem("No se ve ninguna TV (abre «Pantalla» en ella)") { Enabled = false });
             foreach (var d in destinos)
             {
                 var receptor = d.Receptor;
-                _menu.Items.Add(d.TextoMenu, null, (_, _) => m.Iniciar(receptor));
+                _menu.Items.Add(transmitiendo ? "Transmitir otra pantalla a " + d.Receptor : d.TextoMenu, null, (_, _) => m.Iniciar(receptor));
             }
             _menu.Items.Add("Escribir IP…", null, (_, _) =>
             {
@@ -112,17 +135,17 @@ internal sealed class TrayApp : ApplicationContext
 
         _menu.Items.Add(new ToolStripSeparator());
 
-        m.ActualizarPantallas();
         var pantallas = m.OpcionesPantalla();
-        var menuMonitor = new ToolStripMenuItem("Qué pantalla se transmite") { Enabled = editable };
-        Opciones(menuMonitor, pantallas.Opciones, v => m.Cambiar(a => a.MonitorNombre = v));
+        // La pantalla de la próxima transmisión se puede elegir aunque ya se esté transmitiendo (las que están en uso no).
+        var menuMonitor = new ToolStripMenuItem("Qué pantalla se transmite");
+        Opciones(menuMonitor, pantallas.Opciones, v => m.ElegirPantalla(v));
         if (!pantallas.HayVirtual)
         {
             // Para quien lo desmarcó al instalar o viene de una versión anterior.
             menuMonitor.DropDownItems.Add(new ToolStripMenuItem(
                 m.TextoInstalarVirtual, null, (_, _) => m.InstalarMonitorVirtual())
             {
-                Enabled = !m.InstalandoControlador,
+                Enabled = editable && !m.InstalandoControlador,
             });
         }
         _menu.Items.Add(menuMonitor);
@@ -159,7 +182,7 @@ internal sealed class TrayApp : ApplicationContext
         foreach (var o in opciones)
         {
             var valor = o.Valor;
-            padre.DropDownItems.Add(new ToolStripMenuItem(o.Texto, null, (_, _) => elegir(valor)) { Checked = o.Elegida });
+            padre.DropDownItems.Add(new ToolStripMenuItem(o.Texto, null, (_, _) => elegir(valor)) { Checked = o.Elegida, Enabled = o.Disponible });
         }
     }
 

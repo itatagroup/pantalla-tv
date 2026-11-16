@@ -36,6 +36,7 @@ internal sealed class VentanaPrincipal : Form
     private readonly Lista _tvs = new() { AccessibleName = "Transmitir a" };
     private readonly Boton _escribirIp = new() { Text = "Escribir &IP…", Estilo = EstiloBoton.Secundario };
     private const string SinTvs = "No se ve ninguna TV: abre «Pantalla» en ella o escribe su IP.";
+    private const string TodasOcupadas = "Las TV que se ven ya reciben una transmisión: abre «Pantalla» en otra o escribe su IP.";
     private readonly Label _notaTvs = new() { Text = SinTvs, UseMnemonic = false };
     private readonly Boton _abrirRed = new() { Text = "Abrir Configuración de &red", Estilo = EstiloBoton.Secundario };
     private readonly Label _etiquetaPantalla = new() { Text = "Qué &pantalla" };
@@ -43,8 +44,22 @@ internal sealed class VentanaPrincipal : Form
     private readonly Boton _instalarVirtual = new() { Text = "Instalar el &monitor virtual…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaVirtual = new() { Text = "Para usar la tele como un segundo monitor (pide permiso de administrador).", UseMnemonic = false };
     private readonly Tarjeta _vivo = new() { Hundida = true, AccessibleName = "Transmisión en curso", AccessibleRole = AccessibleRole.Grouping };
-    private readonly Label[] _vivoEtiquetas = [.. new[] { "TV", "Pantalla", "Tiempo", "Cuadros por segundo", "Mb/s", "Forma de capturar" }.Select(t => new Label { Text = t, UseMnemonic = false })];
-    private readonly Label[] _vivoValores = [.. Enumerable.Range(0, 6).Select(_ => new Label { UseMnemonic = false, Text = "—" })];
+    /// <summary>Una fila por transmisión (hasta <see cref="Mando.MaxTransmisiones"/>): «TV ← pantalla», su estado y su botón «Detener».</summary>
+    private sealed class FilaVivo
+    {
+        public readonly Label Titulo = new() { UseMnemonic = false };
+        public readonly Label Estado = new() { UseMnemonic = false };
+        public readonly Label Nota = new() { UseMnemonic = false };
+        public readonly Boton Detener = new() { Text = "Detener", Estilo = EstiloBoton.Peligro, Icono = IconoBoton.Detener, UseMnemonic = false };
+        public Transmision? T;
+        public IEnumerable<Control> Controles => [Titulo, Estado, Nota, Detener];
+    }
+
+    private readonly FilaVivo[] _filas = [.. Enumerable.Range(0, Mando.MaxTransmisiones).Select(_ => new FilaVivo())];
+    /// <summary>Por qué no se puede sumar otra transmisión (ya hay 4, o no queda TV o pantalla libre); se ve mientras se transmite.</summary>
+    private readonly Label _notaOtra = new() { UseMnemonic = false };
+    /// <summary>Se ven la TV y la pantalla a elegir: sin transmitir, o transmitiendo con lugar para otra.</summary>
+    private bool _seleccion = true;
     private readonly Boton _boton = new() { Estilo = EstiloBoton.Primario };
 
     private readonly Tarjeta _ajustes = new() { AccessibleName = "Ajustes", AccessibleRole = AccessibleRole.Grouping };
@@ -115,8 +130,13 @@ internal sealed class VentanaPrincipal : Form
         Controls.Add(_contenido);
         _contenido.Controls.AddRange([_punto, _estado, _banda, _principal, _ajustes, _expansor, _avanzado, _version, _botonSalir]);
         _banda.Controls.AddRange([_textoBanda, _actualizar, _despues]);
-        _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _boton]);
-        _vivo.Controls.AddRange([.. _vivoEtiquetas, .. _vivoValores]);
+        _principal.Controls.AddRange([_etiquetaTv, _tvs, _escribirIp, _notaTvs, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _notaVirtual, _vivo, _notaOtra, _boton]);
+        _vivo.Controls.AddRange([.. _filas.SelectMany(f => f.Controles)]);
+        foreach (var f in _filas)
+        {
+            var fila = f;
+            fila.Detener.Click += (_, _) => { if (fila.T is { } t) _mando.Detener(t); };
+        }
         _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _notaModoVirtual,
             _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
@@ -125,7 +145,8 @@ internal sealed class VentanaPrincipal : Form
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
         OrdenTab(_actualizar, _despues);
-        OrdenTab(_etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
+        OrdenTab(_vivo, _etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
+        OrdenTab(_filas.Select(f => f.Detener).ToArray());
         OrdenTab(_sonido, _silenciar, _inicio);
         OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
@@ -133,6 +154,7 @@ internal sealed class VentanaPrincipal : Form
         _avanzado.Visible = false;
         AcceptButton = _boton;
 
+        foreach (var l in _filas.SelectMany(f => new[] { f.Titulo, f.Estado, f.Nota }).Append(_notaOtra)) l.TabStop = false;
         _boton.Click += (_, _) => AlBotonPrincipal();
         _escribirIp.Click += (_, _) => EscribirIp();
         _abrirRed.Click += (_, _) => Red.AbrirConfiguracion();
@@ -174,11 +196,7 @@ internal sealed class VentanaPrincipal : Form
 
     private void AlBotonPrincipal()
     {
-        if (_mando.Transmitiendo)
-        {
-            _mando.Detener();
-            return;
-        }
+        // Con transmisiones en curso este botón suma otra (cada fila tiene su «Detener»).
         if (_tvs.Valor is Destino d) _mando.Iniciar(d.Receptor);
         else EscribirIp();
     }
@@ -282,15 +300,24 @@ internal sealed class VentanaPrincipal : Form
                 : "";
             _banda.AccessibleName = _textoBanda.Text;
 
+            // Mientras se transmite, la TV y la pantalla de abajo son para sumar otra: solo las libres (hasta 4 transmisiones).
+            var motivoNoOtra = transmitiendo ? m.MotivoNoOtra() : null;
+            _seleccion = motivoNoOtra is null;
+            _notaOtra.Text = motivoNoOtra ?? "";
+            _notaOtra.Visible = motivoNoOtra is not null;
+
             // Destinos.
-            var destinos = m.Destinos();
+            var todos = m.Destinos();
+            var destinos = m.DestinosLibres();
             _tvs.Cargar([.. destinos.Select(d => new ElementoLista(d.TextoLista, d))],
                 destinos.FirstOrDefault(d => d.Clave == _elegido) ?? Mando.Preferido(destinos, m.Ajustes.UltimaIp));
             if (_tvs.Valor is Destino actual) _elegido = actual.Clave;
             _tvs.Enabled = destinos.Count > 0;
-            _notaTvs.Visible = !transmitiendo && !Mando.HayTvAnunciada(destinos);
-            var avisoRed = _notaTvs.Visible ? m.AvisoRed() : null;
-            _notaTvs.Text = avisoRed ?? SinTvs;
+            // Transmitiendo y sin TV libre a la vista, la lista queda vacía: se dice por qué y que queda la IP.
+            var todasOcupadas = transmitiendo && destinos.Count == 0;
+            _notaTvs.Visible = todasOcupadas || (!transmitiendo && !Mando.HayTvAnunciada(todos));
+            var avisoRed = _notaTvs.Visible && !transmitiendo ? m.AvisoRed() : null;
+            _notaTvs.Text = todasOcupadas ? TodasOcupadas : avisoRed ?? SinTvs;
             _abrirRed.Visible = avisoRed is not null;
 
             // Pantallas: se rehacen solo si cambió la lista.
@@ -300,25 +327,31 @@ internal sealed class VentanaPrincipal : Form
             _instalarVirtual.Enabled = !m.InstalandoControlador;
             _instalarVirtual.Text = m.TextoInstalarVirtual.Replace(" monitor", " &monitor"); // tecla de acceso Alt+M
 
-            // Panel en vivo en lugar de la elección de TV y pantalla.
+            // Una fila por transmisión arriba; debajo, la elección de TV y pantalla si falta o si se puede sumar otra.
             foreach (var c in new Control[] { _etiquetaTv, _tvs, _escribirIp, _etiquetaPantalla, _pantallas })
-                c.Visible = !transmitiendo;
-            _vivo.Visible = transmitiendo;
-            if (m.EnVivo is { } vivo)
+                c.Visible = _seleccion;
+            var transmisiones = m.Transmisiones;
+            _vivo.Visible = transmisiones.Count > 0;
+            for (var i = 0; i < _filas.Length; i++)
             {
-                var e = vivo.Ultimas;
-                _vivoValores[0].Text = vivo.Tv;
-                _vivoValores[1].Text = vivo.Pantalla;
-                _vivoValores[2].Text = vivo.Desde is { } desde ? Mando.TextoTiempo(DateTime.UtcNow - desde) : "—";
-                _vivoValores[3].Text = Mando.TextoFps(e);
-                _vivoValores[4].Text = Mando.TextoMbps(e);
-                _vivoValores[5].Text = Mando.TextoForma(e);
-                _vivoValores[3].AccessibleName = $"Cuadros por segundo: {_vivoValores[3].Text} de {vivo.FpsPedidos}";
+                var f = _filas[i];
+                f.T = i < transmisiones.Count ? transmisiones[i] : null;
+                foreach (var c in f.Controles) c.Visible = f.T is not null;
+                if (f.T is not { } t) continue;
+                f.Titulo.Text = Mando.TituloFila(t);
+                f.Estado.Text = Mando.EstadoFila(t);
+                f.Nota.Text = m.NotaFila(t);
+                f.Nota.Visible = f.Nota.Text.Length > 0;
+                f.Detener.Text = Mando.TextoBotonFila(t);
+                f.Detener.AccessibleName = (t.EnCurso ? "Detener la transmisión a " : "Quitar la transmisión con error a ") + t.Receptor;
+                f.Estado.AccessibleName = $"Estado de {t.Receptor}: {f.Estado.Text}";
+                f.Estado.ForeColor = p.TextoFuerte; // el contraste medido es el del texto fuerte sobre la tarjeta; el error se lee por su texto
             }
 
-            _boton.Text = transmitiendo ? "&Detener" : "&Transmitir";
-            _boton.Estilo = transmitiendo ? EstiloBoton.Peligro : EstiloBoton.Primario;
-            _boton.Icono = transmitiendo ? IconoBoton.Detener : IconoBoton.Reproducir;
+            _boton.Visible = _seleccion;
+            _boton.Text = transmitiendo ? "&Transmitir otra pantalla…" : "&Transmitir";
+            _boton.Estilo = EstiloBoton.Primario;
+            _boton.Icono = IconoBoton.Reproducir;
 
             // Ajustes.
             _notaBloqueo.Visible = _notaBloqueoAvanzado.Visible = !editable;
@@ -367,8 +400,9 @@ internal sealed class VentanaPrincipal : Form
     /// </summary>
     private void AcomodarSiCambio()
     {
-        var clave = string.Join("|", DeviceDpi, _abierto, _vivo.Visible, _estado.Text, _vivoValores[0].Text, _vivoValores[1].Text,
-            _vivoValores[5].Text, _pantallas.Controls.Count, _instalarVirtual.Text, _notaDiagnostico.Text,
+        // De cada fila solo lo que cambia su alto: el estado cuando no es «Transmitiendo» (esos números cambian cada 2 s sin mover nada).
+        var filas = string.Join(";", _filas.Select(f => f.T is null ? "-" : string.Join("/", f.Titulo.Text, f.T.Fase == Fase.Transmitiendo ? "T" : f.Estado.Text, f.Nota.Text)));
+        var clave = string.Join("|", DeviceDpi, _abierto, _vivo.Visible, _estado.Text, filas, _seleccion, _boton.Visible, _notaOtra.Text, _pantallas.Controls.Count, _instalarVirtual.Text, _notaDiagnostico.Text,
             _banda.Visible, _actualizar.Visible, _textoBanda.Text, _buscarAhora.Text, _notaActualizaciones.Text, _notaModoVirtual.Text, _ffmpeg.Visible, _ffmpeg.Text, _notaFfmpeg.Text, _modoVirtual.Visible, _quitarVirtual.Visible, _reubicarVirtual.Visible, _notaTvs.Text, _abrirRed.Visible,
             string.Concat(Notas().Select(n => n.Visible ? "1" : "0")));
         if (clave == _distribucion) return;
@@ -391,18 +425,18 @@ internal sealed class VentanaPrincipal : Form
                 var opcion = new Opcion { Text = opciones[i].Texto, TabIndex = i, Font = _fuente, BackColor = _principal.BackColor };
                 opcion.CheckedChanged += (_, _) =>
                 {
-                    if (!_refrescando && opcion.Checked) _mando.Cambiar(a => a.MonitorNombre = valor);
+                    if (!_refrescando && opcion.Checked) _mando.ElegirPantalla(valor); // también mientras se transmite: es para la próxima
                 };
                 _pantallas.Controls.Add(opcion);
             }
             _pantallas.ResumeLayout(false);
+            _distribucion = null; // las opciones nuevas nacen sin tamaño ni lugar: acomodar aunque sean las mismas en número
         }
-        var editable = _mando.PuedeCambiarAjustes;
         for (var i = 0; i < opciones.Count; i++)
         {
             var opcion = (Opcion)_pantallas.Controls[i];
             opcion.Checked = opciones[i].Elegida;
-            opcion.Enabled = editable;
+            opcion.Enabled = opciones[i].Disponible; // las que ya van a una TV no se pueden elegir
             opcion.TabStop = opcion.Checked; // como en Windows: Tab entra a la elegida y las flechas recorren el grupo
         }
     }
@@ -433,18 +467,20 @@ internal sealed class VentanaPrincipal : Form
     {
         foreach (var c in Todos(this)) c.Font = _fuente;
         foreach (var l in Notas()) l.Font = _fuenteChica;
-        foreach (var l in _vivoEtiquetas) l.Font = _fuenteChica;
         _version.Font = _fuenteChica;
         _estado.Font = _fuenteEstado;
-        foreach (var l in _vivoValores) l.Font = _fuente;
-        foreach (var i in new[] { 2, 3, 4 }) _vivoValores[i].Font = _fuenteDato;
+        foreach (var f in _filas)
+        {
+            f.Titulo.Font = _fuenteFuerte;
+            f.Estado.Font = _fuente;
+        }
         _boton.Font = _fuenteBoton;
         _expansor.Font = _fuenteFuerte;
         foreach (var l in new[] { _tvs, _forma, _modoVirtual }) l.ItemHeight = S(24);
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual, _notaFfmpeg];
+        [_notaTvs, _notaVirtual, _notaOtra, .. _filas.Select(f => f.Nota), _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual, _notaFfmpeg];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -514,8 +550,10 @@ internal sealed class VentanaPrincipal : Form
         if (_vivo.Visible)
         {
             cy = AcomodarVivo(cy, relleno, interior);
+            if (_notaOtra.Visible) cy = Nota(_notaOtra, relleno, cy + S(10), interior) - S(8);
+            cy += S(14);
         }
-        else
+        if (_seleccion)
         {
             var anchoIp = TextRenderer.MeasureText(_escribirIp.Text, _escribirIp.Font).Width + S(28);
             Etiqueta(_etiquetaTv, relleno, cy, etiquetas, altoCampo);
@@ -544,9 +582,17 @@ internal sealed class VentanaPrincipal : Form
                 cy = Nota(_notaVirtual, relleno + etiquetas, cy + S(2), campo);
             }
         }
-        cy += S(18);
-        Poner(_boton, relleno - S(3), cy - S(3), interior + S(6), S(46) + S(6));
-        cy += S(46) + relleno;
+        if (_boton.Visible)
+        {
+            cy += S(18);
+            Poner(_boton, relleno - S(3), cy - S(3), interior + S(6), S(46) + S(6));
+            cy += S(46);
+        }
+        else
+        {
+            cy -= S(14); // sin botón debajo de las filas: queda solo su separación
+        }
+        cy += relleno;
         Poner(_principal, margen, y, anchoTarjeta, cy);
         y += cy + S(12);
 
@@ -688,37 +734,37 @@ internal sealed class VentanaPrincipal : Form
         _reubicarVirtual.Enabled = editable && !m.InstalandoControlador;
     }
 
+    /// <summary>Las filas de las transmisiones: título y botón «Detener» arriba, el estado debajo y, si hay, una nota chica.</summary>
     private int AcomodarVivo(int cy, int relleno, int interior)
     {
         var r = S(14);
         var ancho = interior - 2 * r;
-        var etiquetas = S(ColumnaEtiquetas) - r;
+        var anchoDetener = TextRenderer.MeasureText("Detener", _filas[0].Detener.Font).Width + S(56);
+        var anchoTexto = ancho - anchoDetener - S(8);
+        var altoBoton = S(36);
         var vy = r;
-        // TV y pantalla: etiqueta a la izquierda, valor a la derecha.
-        foreach (var i in new[] { 0, 1 })
+        foreach (var f in _filas)
         {
-            var alto = Math.Max(S(22), AltoTexto(_vivoValores[i], ancho - etiquetas));
-            Poner(_vivoEtiquetas[i], r, vy + S(2), etiquetas, S(20));
-            Poner(_vivoValores[i], r + etiquetas, vy, ancho - etiquetas, alto);
-            vy += alto + S(6);
+            if (f.T is null) continue;
+            var altoTitulo = Math.Max(S(22), AltoTexto(f.Titulo, anchoTexto));
+            Poner(f.Titulo, r, vy, anchoTexto, altoTitulo);
+            Poner(f.Detener, r + ancho - anchoDetener, vy - S(3), anchoDetener, altoBoton);
+            var fy = vy + altoTitulo + S(2);
+            var altoEstado = Math.Max(S(22), AltoTexto(f.Estado, anchoTexto));
+            Poner(f.Estado, r, fy, anchoTexto, altoEstado);
+            fy += altoEstado;
+            if (f.Nota.Visible)
+            {
+                var altoNota = AltoTexto(f.Nota, anchoTexto);
+                Poner(f.Nota, r, fy + S(2), anchoTexto, altoNota);
+                fy += S(2) + altoNota;
+            }
+            vy = Math.Max(fy, vy - S(3) + altoBoton) + S(14);
         }
-        vy += S(6);
-        // Tiempo, fps y Mb/s: tres números grandes.
-        var tercio = ancho / 3;
-        for (var k = 0; k < 3; k++)
-        {
-            Poner(_vivoValores[2 + k], r + k * tercio, vy, tercio, S(30));
-            Poner(_vivoEtiquetas[2 + k], r + k * tercio, vy + S(30), tercio, S(18));
-        }
-        vy += S(30) + S(18) + S(12);
-        var altoForma = Math.Max(S(22), AltoTexto(_vivoValores[5], ancho - etiquetas));
-        Poner(_vivoEtiquetas[5], r, vy + S(2), etiquetas, S(20));
-        Poner(_vivoValores[5], r + etiquetas, vy, ancho - etiquetas, altoForma);
-        vy += altoForma + r;
+        vy += r - S(14);
         Poner(_vivo, relleno, cy, interior, vy);
         return cy + vy;
     }
-
     private static void Etiqueta(Label l, int x, int y, int ancho, int alto) => Poner(l, x, y, ancho, alto);
 
     private int Nota(Label l, int x, int y, int ancho)
@@ -750,8 +796,11 @@ internal sealed class VentanaPrincipal : Form
             c.ForeColor = p.Texto;
         }
         foreach (var l in Notas()) l.ForeColor = p.Secundario;
-        foreach (var l in _vivoEtiquetas) l.ForeColor = p.Secundario;
-        foreach (var l in _vivoValores) l.ForeColor = p.TextoFuerte;
+        foreach (var f in _filas)
+        {
+            f.Titulo.ForeColor = f.Estado.ForeColor = p.TextoFuerte;
+            f.Nota.ForeColor = p.Secundario;
+        }
         _version.ForeColor = p.Secundario;
         foreach (var l in new[] { _tvs, _forma, _modoVirtual }) l.BackColor = p.Superficie;
         if (IsHandleCreated) AplicarTemaVentana(p);
