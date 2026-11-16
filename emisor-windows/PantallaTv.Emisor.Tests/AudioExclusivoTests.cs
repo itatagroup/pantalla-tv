@@ -273,6 +273,9 @@ internal sealed class SistemaFalso : IVentanas, IProcesos, IRutasAudio, IFabrica
     public List<string> Fijados { get; } = [];
     public string? Defecto { get; set; } = "{0.0.0.00000000}.{defecto}";
     public bool FallaFijar { get; set; }
+    /// <summary>Procesos que no aceptan la ruta (como el Edge de fondo de Windows, sin ventana).</summary>
+    public HashSet<int> FallanAlFijar { get; } = [];
+    public List<int> IntentosFijar { get; } = [];
 
     public IReadOnlyList<VentanaVisible> Listar() => [.. Ventanas];
 
@@ -285,7 +288,8 @@ internal sealed class SistemaFalso : IVentanas, IProcesos, IRutasAudio, IFabrica
 
     public void Fijar(int pid, string idSalida)
     {
-        if (FallaFijar) throw new InvalidOperationException("HRESULT=0x80070057");
+        IntentosFijar.Add(pid);
+        if (FallaFijar || FallanAlFijar.Contains(pid)) throw new InvalidOperationException("HRESULT=0x80070057");
         Salidas[ExeDe(pid)] = (idSalida, idSalida);
         Fijados.Add($"{pid}:{idSalida}");
     }
@@ -460,6 +464,39 @@ public sealed class AudioExclusivoTests : IDisposable
 
         Assert.Equal(10, Assert.Single(s.Capturas).Pid); // el árbol de la raíz ya incluye a los hijos
         Assert.Single(s.Fijados); // la preferencia es por ejecutable
+    }
+
+    [Fact]
+    public void Se_fija_primero_el_proceso_con_la_ventana_en_la_tele()
+    {
+        var s = new SistemaFalso();
+        // El primero de la lista es otro proceso del mismo programa sin ventana (el Edge de fondo) que no acepta la ruta.
+        s.Procesos.AddRange([new ProcesoInfo(5, 1, Chrome), new ProcesoInfo(10, 1, Chrome)]);
+        s.FallanAlFijar.Add(5);
+        VentanaEnTele(s, Chrome, 10);
+        using var audio = Nuevo(s);
+
+        audio.Sondear();
+
+        Assert.Equal([10], s.IntentosFijar);
+        Assert.Equal((Cable, Cable), s.Salidas[Chrome]);
+    }
+
+    [Fact]
+    public void Un_proceso_que_no_acepta_la_ruta_pasa_al_final_y_se_prueba_el_siguiente()
+    {
+        var s = new SistemaFalso();
+        s.Procesos.AddRange([new ProcesoInfo(5, 1, Chrome), new ProcesoInfo(10, 1, Chrome)]);
+        s.FallanAlFijar.Add(10);
+        VentanaEnTele(s, Chrome, 10);
+        using var audio = Nuevo(s);
+
+        audio.Sondear(); // falla el de la ventana
+        audio.Sondear(); // prueba el otro, no el que falló
+        audio.Sondear(); // ya quedó: no se toca más
+
+        Assert.Equal([10, 5], s.IntentosFijar);
+        Assert.Equal((Cable, Cable), s.Salidas[Chrome]);
     }
 
     [Fact]

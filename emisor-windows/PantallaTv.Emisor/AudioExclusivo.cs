@@ -32,6 +32,7 @@ internal sealed class AudioExclusivo : IFuenteAudio
     private HashSet<string> _enTele = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _tambienEnPc = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _exesFijados = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<int> _pidsSinRuta = [];
     private int _miradas;
     private readonly Dictionary<int, ICapturaDeProceso> _capturas = [];
     private readonly string? _defectoInicial;
@@ -141,7 +142,8 @@ internal sealed class AudioExclusivo : IFuenteAudio
         lock (_cerrojo)
         {
             if (_liberado) return;
-            var seleccion = SeleccionAudio.Elegir(_ventanas.Listar(), _monitor);
+            var ventanas = _ventanas.Listar();
+            var seleccion = SeleccionAudio.Elegir(ventanas, _monitor);
             var diferencia = DiferenciaApps.Calcular(_enTele, seleccion.EnTele);
 
             foreach (var exe in diferencia.Salen) Registro.Anotar($"audio exclusivo: {DiferenciaApps.Nombre(exe)} sale de la tele");
@@ -152,7 +154,10 @@ internal sealed class AudioExclusivo : IFuenteAudio
             _tambienEnPc = new HashSet<string>(seleccion.TambienEnPc, StringComparer.OrdinalIgnoreCase);
 
             var procesos = _procesos.De([.. _enTele]);
-            foreach (var exe in _enTele) AsegurarRuta(exe, procesos);
+            // Un PID que no aceptó la ruta pasa al final de la cola (cada intento son ~2 s de reintentos que bloquean la mirada).
+            _pidsSinRuta.IntersectWith(procesos.Select(p => p.Pid));
+            var pidsConVentana = ventanas.Where(v => _enTele.Contains(v.Exe)).Select(v => v.Pid).ToHashSet();
+            foreach (var exe in _enTele) AsegurarRuta(exe, procesos, pidsConVentana);
             AbrirYCerrarCapturas(procesos);
             // Lo que ya no está en la tele: devolver su salida (y reintentar lo que quedó pendiente de antes).
             // Un programa que sale pierde su marca: si vuelve, se fija otra vez.
@@ -168,9 +173,12 @@ internal sealed class AudioExclusivo : IFuenteAudio
     }
 
     /// <summary>Anota lo que había y manda a todos los procesos del programa a VB-CABLE (los que ya estaban fijados no se tocan).</summary>
-    private void AsegurarRuta(string exe, IReadOnlyList<ProcesoInfo> procesos)
+    private void AsegurarRuta(string exe, IReadOnlyList<ProcesoInfo> procesos, IReadOnlySet<int> pidsConVentana)
     {
-        var propios = procesos.Where(p => string.Equals(p.Exe, exe, StringComparison.OrdinalIgnoreCase)).ToList();
+        // Primero el proceso con la ventana en el monitor: otro del mismo programa puede no servir (medido en la prueba
+        // real de H2: el Edge de fondo de Windows, sin ventana, responde E_INVALIDARG y el de la ventana sí la acepta).
+        var propios = procesos.Where(p => string.Equals(p.Exe, exe, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => pidsConVentana.Contains(p.Pid) ? 0 : 1).ToList();
         if (propios.Count == 0) return; // aún no hay proceso (se está abriendo): la próxima mirada
         if (!_guardadas.Contiene(exe))
         {
@@ -189,7 +197,13 @@ internal sealed class AudioExclusivo : IFuenteAudio
         if (_exesFijados.Contains(exe)) return;
         // La preferencia es por ejecutable (medido en F4): con un proceso basta, y vale también para los que se abran
         // después. Se prueba con un solo proceso por mirada para no dejar la mirada bloqueada con los reintentos de Fijar.
-        var p = propios[0];
+        var p = propios.FirstOrDefault(x => !_pidsSinRuta.Contains(x.Pid));
+        if (p is null)
+        {
+            // Ya fallaron todos (p. ej. un proceso recién lanzado que aún no vale para la política): otra vuelta desde el primero.
+            foreach (var x in propios) _pidsSinRuta.Remove(x.Pid);
+            p = propios[0];
+        }
         try
         {
             _rutas.Fijar(p.Pid, _idCable);
@@ -197,6 +211,7 @@ internal sealed class AudioExclusivo : IFuenteAudio
         }
         catch (InvalidOperationException e)
         {
+            _pidsSinRuta.Add(p.Pid);
             Registro.Anotar($"audio exclusivo: no se pudo mandar {DiferenciaApps.Nombre(exe)} (pid {p.Pid}) al cable: {e.Message}");
         }
     }

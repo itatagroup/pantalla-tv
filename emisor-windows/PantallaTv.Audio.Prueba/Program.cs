@@ -57,6 +57,8 @@ try
         Console.WriteLine("(* = por defecto)");
         return 0;
     }
+    if (Tiene("--escuchar")) return Salida.Escuchar(Valor("--dispositivo"), Num("--seg", 10), Salida.Frecuencias(Valor("--hz")), cts.Token);
+    if (Tiene("--silenciar-sesion")) return Salida.SilenciarSesion((int)Num("--pid", 0), !Tiene("--quitar"));
     if (Tiene("--ruta")) return Herramientas.Ruta((int)Num("--pid", 0), Valor("--dispositivo"), (int)Num("--seg", 5), cts.Token);
 
     Console.WriteLine("""
@@ -68,6 +70,8 @@ try
           --dispositivos                              salidas de render activas (nombre, id, por defecto)
           --ruta --pid P --dispositivo <id|nombre> [--seg N]   fija la salida de un PID, espera y restaura
           --medir-ruta [--dispositivo <id|nombre>]    casos g-k: apps a otra salida (omite si no hay segunda salida)
+          --escuchar [--dispositivo <id|nombre>] [--seg N] [--hz 440,1000]   loopback de una salida: nivel por segundo
+          --silenciar-sesion --pid P [--quitar]       silencia (o devuelve) la sesión de audio de un proceso
         """);
     return 0;
 }
