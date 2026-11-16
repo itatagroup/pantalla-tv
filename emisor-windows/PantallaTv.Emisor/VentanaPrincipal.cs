@@ -36,6 +36,7 @@ internal sealed class VentanaPrincipal : Form
     private readonly Lista _tvs = new() { AccessibleName = "Transmitir a" };
     private readonly Boton _escribirIp = new() { Text = "Escribir &IP…", Estilo = EstiloBoton.Secundario };
     private const string SinTvs = "No se ve ninguna TV: abre «Pantalla» en ella o escribe su IP.";
+    private const string TodasOcupadas = "Las TV que se ven ya reciben una transmisión: abre «Pantalla» en otra o escribe su IP.";
     private readonly Label _notaTvs = new() { Text = SinTvs, UseMnemonic = false };
     private readonly Boton _abrirRed = new() { Text = "Abrir Configuración de &red", Estilo = EstiloBoton.Secundario };
     private readonly Label _etiquetaPantalla = new() { Text = "Qué &pantalla" };
@@ -312,9 +313,11 @@ internal sealed class VentanaPrincipal : Form
                 destinos.FirstOrDefault(d => d.Clave == _elegido) ?? Mando.Preferido(destinos, m.Ajustes.UltimaIp));
             if (_tvs.Valor is Destino actual) _elegido = actual.Clave;
             _tvs.Enabled = destinos.Count > 0;
-            _notaTvs.Visible = !transmitiendo && !Mando.HayTvAnunciada(todos);
-            var avisoRed = _notaTvs.Visible ? m.AvisoRed() : null;
-            _notaTvs.Text = avisoRed ?? SinTvs;
+            // Transmitiendo y sin TV libre a la vista, la lista queda vacía: se dice por qué y que queda la IP.
+            var todasOcupadas = transmitiendo && destinos.Count == 0;
+            _notaTvs.Visible = todasOcupadas || (!transmitiendo && !Mando.HayTvAnunciada(todos));
+            var avisoRed = _notaTvs.Visible && !transmitiendo ? m.AvisoRed() : null;
+            _notaTvs.Text = todasOcupadas ? TodasOcupadas : avisoRed ?? SinTvs;
             _abrirRed.Visible = avisoRed is not null;
 
             // Pantallas: se rehacen solo si cambió la lista.
@@ -427,6 +430,7 @@ internal sealed class VentanaPrincipal : Form
                 _pantallas.Controls.Add(opcion);
             }
             _pantallas.ResumeLayout(false);
+            _distribucion = null; // las opciones nuevas nacen sin tamaño ni lugar: acomodar aunque sean las mismas en número
         }
         for (var i = 0; i < opciones.Count; i++)
         {

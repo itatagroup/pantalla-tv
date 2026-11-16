@@ -42,12 +42,13 @@ public sealed class TransmisionesTests : IDisposable
 
     private static readonly Receptor Sala = Tv("Sala", 20), Pieza = Tv("Pieza", 30), Cocina = Tv("Cocina", 40), Estudio = Tv("Estudio", 50), Patio = Tv("Patio", 60);
 
-    private Mando Nuevo(bool conAudio = false)
+    private Mando Nuevo(bool conAudio = false, Receptor[]? tvs = null)
     {
         var ajustes = Ajustes.Cargar(Path.Combine(_carpeta, "ajustes.json"));
         ajustes.ConAudio = conAudio; // las emisiones son falsas: no se captura ni se silencia nada
         ajustes.Reconectar = false;
-        var mando = new Mando(ajustes, new ContextoInmediato(), () => [Sala, Pieza, Cocina, Estudio, Patio])
+        var vistas = tvs ?? [Sala, Pieza, Cocina, Estudio, Patio];
+        var mando = new Mando(ajustes, new ContextoInmediato(), () => vistas)
         {
             FabricaEmision = () => { var e = new EmisionFalsa(); _falsas.Enqueue(e); return e; },
             Preparador = (nombre, _, _) =>
@@ -105,6 +106,19 @@ public sealed class TransmisionesTests : IDisposable
         Assert.Contains("Esa pantalla ya se transmite a Sala (10.0.0.20). Elige otra pantalla o detén esa transmisión.", _avisos);
         // Otra pantalla sí.
         await Iniciar(mando, Pieza, "virtual");
+        Assert.Equal(2, mando.Transmisiones.Count);
+        mando.Detener();
+    }
+
+    [Fact]
+    public async Task Sin_TV_libre_a_la_vista_se_puede_sumar_otra_por_IP()
+    {
+        using var mando = Nuevo(tvs: [Sala]);
+        await Iniciar(mando, Sala, "virtual");
+        Assert.Empty(mando.DestinosLibres());
+
+        Assert.Null(mando.MotivoNoOtra()); // la ventana y la bandeja dejan «Escribir IP…»
+        Assert.True(mando.IniciarConIp("10.0.0.30:5602"));
         Assert.Equal(2, mando.Transmisiones.Count);
         mando.Detener();
     }

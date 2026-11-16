@@ -490,7 +490,7 @@ internal sealed partial class Mando : IDisposable
         return null;
     }
 
-    /// <summary>¿Por qué no se puede sumar otra transmisión ahora (ya hay 4, o no queda una TV o una pantalla libre)? Null si se puede.</summary>
+    /// <summary>¿Por qué no se puede sumar otra transmisión ahora (ya hay 4, o no queda una pantalla libre)? Null si se puede: sin TV libre a la vista queda escribir la IP.</summary>
     public string? MotivoNoOtra()
     {
         if (_transmisiones.Count(t => t.EnCurso) >= MaxTransmisiones)

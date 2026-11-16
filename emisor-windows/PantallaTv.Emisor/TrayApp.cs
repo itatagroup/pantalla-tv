@@ -111,7 +111,7 @@ internal sealed class TrayApp : ApplicationContext
             }
             _menu.Items.Add(new ToolStripSeparator());
         }
-        // Sin transmitir, o con menos de 4 y TV y pantallas libres: se puede sumar otra (con la pantalla de «Qué pantalla se transmite»).
+        // Sin transmitir, o con menos de 4 y alguna pantalla libre: se puede sumar otra (a una TV libre o escribiendo su IP) (con la pantalla de «Qué pantalla se transmite»).
         var motivoNoOtra = transmitiendo ? m.MotivoNoOtra() : null;
         if (motivoNoOtra is not null)
         {
