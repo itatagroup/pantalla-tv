@@ -154,7 +154,7 @@ internal sealed class AudioExclusivo : IFuenteAudio
             _tambienEnPc = new HashSet<string>(seleccion.TambienEnPc, StringComparer.OrdinalIgnoreCase);
 
             var procesos = _procesos.De([.. _enTele]);
-            // Un PID que no aceptó la ruta pasa al final de la cola (cada intento son ~2 s de reintentos que bloquean la mirada).
+            // Un PID que aceptó la lectura pero no la ruta no se vuelve a probar hasta que fallen todos (cada intento son ~2 s).
             _pidsSinRuta.IntersectWith(procesos.Select(p => p.Pid));
             var pidsConVentana = ventanas.Where(v => _enTele.Contains(v.Exe)).Select(v => v.Pid).ToHashSet();
             foreach (var exe in _enTele) AsegurarRuta(exe, procesos, pidsConVentana);
@@ -180,12 +180,26 @@ internal sealed class AudioExclusivo : IFuenteAudio
         var propios = procesos.Where(p => string.Equals(p.Exe, exe, StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => pidsConVentana.Contains(p.Pid) ? 0 : 1).ToList();
         if (propios.Count == 0) return; // aún no hay proceso (se está abriendo): la próxima mirada
+        if (_exesFijados.Contains(exe)) return;
+        // La preferencia es por ejecutable (medido en F4): con un proceso basta, y vale también para los que se abran
+        // después. Se prueba con un solo proceso por mirada para no dejar la mirada bloqueada con los reintentos de Fijar.
+        // Solo los que Windows acepta (los que ya tienen sesión de audio). Si ninguno, se espera: en cuanto el programa
+        // suene, la próxima mirada lo fija (ese primer sonido sale por el PC: «pausa y vuelve a reproducir», H3).
+        var p = propios.FirstOrDefault(x => !_pidsSinRuta.Contains(x.Pid) && _rutas.Acepta(x.Pid));
+        if (p is null && propios.All(x => _pidsSinRuta.Contains(x.Pid)))
+        {
+            // Ya fallaron todos (p. ej. uno recién lanzado que aún no valía): otra vuelta desde el primero.
+            foreach (var x in propios) _pidsSinRuta.Remove(x.Pid);
+            p = propios.FirstOrDefault(x => _rutas.Acepta(x.Pid));
+        }
+        if (p is null) return;
         if (!_guardadas.Contiene(exe))
         {
-            // El «antes» se lee una sola vez, antes de tocar nada, y se anota ANTES de cambiar (si el programa se cae a mitad, se puede devolver).
+            // El «antes» se lee una sola vez, antes de tocar nada, y se anota ANTES de cambiar (si el programa se cae a mitad,
+            // se puede devolver). Del mismo proceso aceptado: uno sin sesión de audio leería "" aunque haya una ruta propia.
             try
             {
-                var (mm, co) = _rutas.Leer(propios[0].Pid);
+                var (mm, co) = _rutas.Leer(p.Pid);
                 _guardadas.Agregar(new RutaGuardada(exe, mm, co));
             }
             catch (InvalidOperationException e)
@@ -193,16 +207,6 @@ internal sealed class AudioExclusivo : IFuenteAudio
                 Registro.Anotar($"audio exclusivo: no se pudo leer la salida de {exe}: {e.Message}");
                 return;
             }
-        }
-        if (_exesFijados.Contains(exe)) return;
-        // La preferencia es por ejecutable (medido en F4): con un proceso basta, y vale también para los que se abran
-        // después. Se prueba con un solo proceso por mirada para no dejar la mirada bloqueada con los reintentos de Fijar.
-        var p = propios.FirstOrDefault(x => !_pidsSinRuta.Contains(x.Pid));
-        if (p is null)
-        {
-            // Ya fallaron todos (p. ej. un proceso recién lanzado que aún no vale para la política): otra vuelta desde el primero.
-            foreach (var x in propios) _pidsSinRuta.Remove(x.Pid);
-            p = propios[0];
         }
         try
         {

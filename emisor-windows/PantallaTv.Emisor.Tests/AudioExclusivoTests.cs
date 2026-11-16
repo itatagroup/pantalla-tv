@@ -276,6 +276,10 @@ internal sealed class SistemaFalso : IVentanas, IProcesos, IRutasAudio, IFabrica
     /// <summary>Procesos que no aceptan la ruta (como el Edge de fondo de Windows, sin ventana).</summary>
     public HashSet<int> FallanAlFijar { get; } = [];
     public List<int> IntentosFijar { get; } = [];
+    /// <summary>Procesos sin sesión de audio: Windows no acepta ni la lectura de su ruta.</summary>
+    public HashSet<int> SinSesion { get; } = [];
+
+    public bool Acepta(int pid) => !SinSesion.Contains(pid);
 
     public IReadOnlyList<VentanaVisible> Listar() => [.. Ventanas];
 
@@ -497,6 +501,29 @@ public sealed class AudioExclusivoTests : IDisposable
 
         Assert.Equal([10, 5], s.IntentosFijar);
         Assert.Equal((Cable, Cable), s.Salidas[Chrome]);
+    }
+
+    [Fact]
+    public void Un_proceso_sin_sesion_de_audio_no_se_intenta_y_se_fija_cuando_suena()
+    {
+        var s = new SistemaFalso();
+        s.Procesos.AddRange([new ProcesoInfo(5, 1, Chrome), new ProcesoInfo(10, 1, Chrome)]);
+        s.Salidas[Chrome] = ("{audifonos}", "{audifonos}"); // el usuario lo tenía fijado a otra salida
+        s.SinSesion.UnionWith([5, 10]); // recién abierto: todavía no suena
+        VentanaEnTele(s, Chrome, 10);
+        using var audio = Nuevo(s);
+
+        audio.Sondear();
+        Assert.Empty(s.IntentosFijar);
+        Assert.Empty(Guardadas.Todas()); // el «antes» no se lee de un proceso que Windows no acepta
+
+        s.SinSesion.Remove(10); // empezó a sonar
+        audio.Sondear();
+
+        Assert.Equal([10], s.IntentosFijar);
+        Assert.Equal((Cable, Cable), s.Salidas[Chrome]);
+        var anotada = Guardadas.De(Chrome)!;
+        Assert.Equal(("{audifonos}", "{audifonos}"), (anotada.Multimedia, anotada.Consola));
     }
 
     [Fact]

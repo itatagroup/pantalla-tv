@@ -90,6 +90,13 @@ internal interface IRutasAudio
 
     /// <summary>El id de la salida por defecto de Windows (null si no hay): se mira para comprobar que no se movió.</summary>
     string? SalidaPorDefecto();
+
+    /// <summary>
+    /// ¿Windows acepta la política de audio para este proceso? Solo la aceptan los que ya tienen sesión de audio (medido en la
+    /// prueba real de H2: un Edge recién abierto, o el de fondo sin ventana, da E_INVALIDARG hasta que suena algo). Es una
+    /// lectura, sin reintentos: sirve para no gastar los ~2 s de reintentos de <see cref="Fijar"/> en un proceso que no vale.
+    /// </summary>
+    bool Acepta(int pid);
 }
 
 /// <summary>
@@ -155,6 +162,14 @@ internal sealed class RutasWindows : IRutasAudio
         }
         try { return Metodo<DSet>(f, IndiceSet)(f, (uint)pid, Render, rol, hs); }
         finally { if (hs != IntPtr.Zero) WindowsDeleteString(hs); }
+    }
+
+    public bool Acepta(int pid)
+    {
+        var f = Fabrica();
+        var hr = Metodo<DGet>(f, IndiceGet)(f, (uint)pid, Render, Multimedia, out var hs);
+        if (hs != IntPtr.Zero) WindowsDeleteString(hs);
+        return hr >= 0;
     }
 
     private static string LeerRol(int pid, int rol)
