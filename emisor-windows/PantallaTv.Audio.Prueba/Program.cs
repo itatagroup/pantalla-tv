@@ -25,7 +25,7 @@ try
 {
     if (Tiene("--tono"))
     {
-        Herramientas.Tono(Num("--tono", 440), (int)Num("--seg", 5), Num("--amplitud", 0.05), cts.Token);
+        Herramientas.Tono(Num("--tono", 440), (int)Num("--seg", 5), Num("--amplitud", 0.05), (int)Num("--retraso-ms", 0), (int)Num("--reabrir-ms", 0), cts.Token);
         return 0;
     }
     if (Tiene("--lanzar-tono")) // proceso intermedio: lanza el tono como hijo y espera (caso del árbol de procesos)
@@ -45,6 +45,19 @@ try
         return r.Error is null ? 0 : 1;
     }
     if (Tiene("--medir")) return Bateria.Correr(cts.Token);
+    if (Tiene("--medir-ruta")) return BateriaRuta.Correr(Valor("--dispositivo"), cts.Token);
+    if (Tiene("--dispositivos"))
+    {
+        foreach (var d in Dispositivos.Listar())
+        {
+            Console.WriteLine($"{(d.EsDefecto ? "*" : " ")} {d.Nombre}");
+            Console.WriteLine($"    id={d.Id}");
+            Console.WriteLine($"    envuelto={Dispositivos.Envolver(d.Id)}");
+        }
+        Console.WriteLine("(* = por defecto)");
+        return 0;
+    }
+    if (Tiene("--ruta")) return Herramientas.Ruta((int)Num("--pid", 0), Valor("--dispositivo"), (int)Num("--seg", 5), cts.Token);
 
     Console.WriteLine("""
         AudioPrueba: mide la captura de audio por proceso (process loopback).
@@ -52,6 +65,9 @@ try
           --sesiones                                  sesiones de audio activas y monitor de las ventanas
           --capturar --pid P [--excluir] [--seg N] [--wav archivo]
           --medir                                     batería completa (lanza sus propios tonos)
+          --dispositivos                              salidas de render activas (nombre, id, por defecto)
+          --ruta --pid P --dispositivo <id|nombre> [--seg N]   fija la salida de un PID, espera y restaura
+          --medir-ruta [--dispositivo <id|nombre>]    casos g-k: apps a otra salida (omite si no hay segunda salida)
         """);
     return 0;
 }
@@ -89,14 +105,40 @@ internal static class Restauracion
 
 internal static class Herramientas
 {
-    public static void Tono(double hz, int seg, double amplitud, CancellationToken ct)
+    public static int Ruta(int pid, string? dispositivo, int seg, CancellationToken ct)
     {
+        if (pid <= 0 || dispositivo is null) { Console.Error.WriteLine("Uso: --ruta --pid P --dispositivo <id o parte del nombre> [--seg N]"); return 2; }
+        var (disp, error) = Dispositivos.Elegir(Dispositivos.Listar(), dispositivo);
+        if (disp is null) { Console.Error.WriteLine(error); return 2; }
+        var leido = RutaPorApp.Leer(pid, RutaPorApp.Multimedia, out var hrLeer);
+        Console.WriteLine($"Get inicial: hr=0x{hrLeer:X8} valor='{leido}'");
+        Console.WriteLine($"PID {pid}: antes multimedia='{RutaPorApp.Leer(pid, RutaPorApp.Multimedia, out _)}' console='{RutaPorApp.Leer(pid, RutaPorApp.Console, out _)}'");
+        var usada = RutaPorApp.Fijar(pid, disp.Id, "(--ruta)");
+        Console.WriteLine($"PID {pid} -> {disp.Nombre} (id usado: {usada})");
+        Console.WriteLine($"  leído: multimedia='{RutaPorApp.Leer(pid, RutaPorApp.Multimedia, out _)}' console='{RutaPorApp.Leer(pid, RutaPorApp.Console, out _)}'");
+        ct.WaitHandle.WaitOne(seg * 1000);
+        Restauracion.Ejecutar();
+        Console.WriteLine($"  después de restaurar: multimedia='{RutaPorApp.Leer(pid, RutaPorApp.Multimedia, out _)}'");
+        return 0;
+    }
+
+    public static void Tono(double hz, int seg, double amplitud, int retrasoMs, int reabrirMs, CancellationToken ct)
+    {
+        if (retrasoMs > 0) ct.WaitHandle.WaitOne(retrasoMs);
         Console.WriteLine($"PID={Environment.ProcessId} tono={hz}Hz seg={seg} amplitud={amplitud}");
+        // reabrirMs > 0: tras ese tiempo se cierra el stream y se abre uno NUEVO (¿la ruta se aplica a streams nuevos?).
+        var primera = reabrirMs > 0 ? Math.Min(reabrirMs, seg * 1000) : seg * 1000;
+        AbrirYSonar(hz, amplitud, primera, ct);
+        if (reabrirMs > 0 && seg * 1000 > primera) AbrirYSonar(hz, amplitud, seg * 1000 - primera, ct);
+    }
+
+    private static void AbrirYSonar(double hz, double amplitud, int ms, CancellationToken ct)
+    {
         var generador = new SignalGenerator(48000, 2) { Type = SignalGeneratorType.Sin, Frequency = hz, Gain = amplitud };
         using var salida = new WasapiOut(AudioClientShareMode.Shared, 50);
         salida.Init(new SampleToWaveProvider(generador));
         salida.Play();
-        ct.WaitHandle.WaitOne(seg * 1000);
+        ct.WaitHandle.WaitOne(ms);
         salida.Stop();
     }
 
@@ -121,9 +163,9 @@ internal static class Herramientas
 
 internal static class Bateria
 {
-    private sealed record Fila(string Caso, ResultadoCaptura R, double? Esperada, double? Otra);
+    internal sealed record Fila(string Caso, ResultadoCaptura R, double? Esperada, double? Otra);
 
-    private static readonly List<System.Diagnostics.Process> Hijos = [];
+    internal static readonly List<System.Diagnostics.Process> Hijos = [];
 
     private static System.Diagnostics.Process Lanzar(string argumentos)
     {
@@ -282,12 +324,12 @@ internal static class Bateria
         return 0;
     }
 
-    private static void Cerrar(System.Diagnostics.Process p)
+    internal static void Cerrar(System.Diagnostics.Process p)
     {
         try { if (!p.HasExited) { p.Kill(true); p.WaitForExit(2000); } } catch { /* ya salió */ }
     }
 
-    private static void Imprimir(List<Fila> filas, List<string> notas)
+    internal static void Imprimir(List<Fila> filas, List<string> notas)
     {
         Console.WriteLine();
         Console.WriteLine($"{"caso",-40} {"llega",-5} {"paq",5} {"sil",4} {"disc",4} {"rms dBFS",9} {"freq Hz",8} {"a440 dB",8} {"a880 dB",8} {"sep dB",7} {"edad ms",8}");
