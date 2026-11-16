@@ -98,14 +98,14 @@ internal sealed class TrayApp : ApplicationContext
             _menu.Items.Add(new ToolStripMenuItem(ts.Count == 1 ? "1 transmisión en curso" : $"{ts.Count} transmisiones en curso") { Enabled = false });
             if (ts.Count == 1)
             {
-                _menu.Items.Add("Detener transmisión", null, (_, _) => m.Detener());
+                _menu.Items.Add($"{Mando.TextoBotonFila(ts[0])} transmisión", null, (_, _) => m.Detener());
             }
             else
             {
                 foreach (var t in ts)
                 {
                     var una = t;
-                    _menu.Items.Add($"Detener {Mando.TituloFila(una)}", null, (_, _) => m.Detener(una));
+                    _menu.Items.Add($"{Mando.TextoBotonFila(una)} {Mando.TituloFila(una)}", null, (_, _) => m.Detener(una));
                 }
                 _menu.Items.Add("Detener todas", null, (_, _) => m.Detener());
             }
