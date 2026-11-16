@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 
@@ -524,6 +524,9 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Un aviso de una transmisión empieza por la TV a la que se refiere (con varias, si no, no se sabría cuál).</summary>
     private static string ConTv(Transmision t, string texto) => $"{t.Receptor}: {texto}";
 
+    /// <summary>Los textos de los avisos del sonido de la tele y los nombres de los programas (con su caché).</summary>
+    internal AvisosAudio Avisos { get; init; } = new();
+
     public bool Iniciar(Receptor receptor, string? pantalla)
     {
         if (MotivoNoPuedeIniciar(receptor, pantalla) is { } motivo)
@@ -575,6 +578,8 @@ internal sealed partial class Mando : IDisposable
         var emision = FabricaEmision?.Invoke() ?? (a.Reconectar ? new EmisionPersistente() : new Emision());
         emision.CambioDeEstado += AlEstado;
         emision.NuevasEstadisticas += AlNumeros;
+        emision.CambioDeAudio += c => EnLaInterfaz(() => AlCambiarAudio(t, c));
+        t.Emision = emision;
 
         lock (_cerrojo) _transmisiones = [.. _transmisiones, t];
         var vivo = t.Vivo;
@@ -815,6 +820,33 @@ internal sealed partial class Mando : IDisposable
         Cambio?.Invoke();
     }
 
+    /// <summary>
+    /// El sonido separado de la tele cambió (H3). Cada aviso sale como globo en el PC y como franja en la tele. «Pasaron a la tele» y
+    /// «volvieron» se avisan cada vez; «también tiene ventanas en tu pantalla», una sola vez por programa y por transmisión.
+    /// </summary>
+    internal void AlCambiarAudio(Transmision t, CambioAudio c)
+    {
+        string? texto = null;
+        switch (c.Tipo)
+        {
+            case TipoCambioAudio.PasaronATele when c.Exes.Count > 0:
+                texto = Avisos.PasaronATele(c.Exes);
+                break;
+            case TipoCambioAudio.VolvieronAlPc when c.Exes.Count > 0:
+                texto = Avisos.VolvieronAlPc(c.Exes);
+                break;
+            case TipoCambioAudio.TambienEnPc:
+                t.TambienEnPc = c.Exes;
+                var nuevos = c.Exes.Where(t.TambienEnPcAvisados.Add).ToList();
+                if (nuevos.Count > 0) texto = Avisos.TambienEnPc(nuevos) + ".";
+                Cambio?.Invoke(); // la nota de la fila cambió
+                break;
+        }
+        if (texto is null) return;
+        Aviso?.Invoke(ConTv(t, texto), ToolTipIcon.Info);
+        t.Emision?.AvisarATele(texto);
+    }
+
     internal void AlEstadisticas(Transmision t, Estadisticas e)
     {
         if (t.Fase != Fase.Transmitiendo) return;
@@ -883,6 +915,7 @@ internal sealed partial class Mando : IDisposable
         if (t.Fase == Fase.Transmitiendo && TextoForma(t.Vivo.Ultimas) is var forma && forma != "—") partes.Add(forma);
         if (!t.ConSonido && Ajustes.ConAudio) partes.Add(TextoSinSonido);
         else if (t.ConSonido) partes.Add("con sonido");
+        if (t.Fase == Fase.Transmitiendo && t.TambienEnPc.Count > 0) partes.Add(Avisos.TambienEnPc(t.TambienEnPc));
         return string.Join(" · ", partes);
     }
 

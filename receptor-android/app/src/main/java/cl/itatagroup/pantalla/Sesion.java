@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -38,6 +40,9 @@ final class Sesion implements Runnable {
         void primerCuadro();
 
         void desconectado();
+
+        /** Llegó un AVISO válido del emisor (se llama desde el hilo de red: quien lo reciba pasa al de la interfaz). */
+        void aviso(String texto);
     }
 
     private final Socket socket;
@@ -186,8 +191,26 @@ final class Sesion implements Runnable {
                 reloj.anotar(ahoraUs, pts);
                 enviar(Protocolo.PONG, pts, c);
                 break;
+            case Protocolo.AVISO:
+                String texto = textoDeAviso(c);
+                if (texto != null) estado.aviso(texto);
+                break;
             default:
                 break; // tipos desconocidos: se ignoran (compatibilidad hacia adelante)
+        }
+    }
+
+    /** El texto de un AVISO, o null si no sirve (vacío, más largo que el tope o UTF-8 mal formado): se descarta. */
+    static String textoDeAviso(byte[] carga) {
+        if (carga.length == 0 || carga.length > Protocolo.MAX_AVISO) return null;
+        try {
+            String texto = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(carga)).toString().trim();
+            return texto.isEmpty() ? null : texto;
+        } catch (CharacterCodingException e) {
+            return null;
         }
     }
 

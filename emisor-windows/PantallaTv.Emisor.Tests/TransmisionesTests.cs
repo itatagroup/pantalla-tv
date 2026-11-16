@@ -10,6 +10,12 @@ internal sealed class EmisionFalsa : IEmision
 
     public event Action<EstadoEmision>? CambioDeEstado;
     public event Action<Estadisticas>? NuevasEstadisticas;
+    public event Action<CambioAudio>? CambioDeAudio;
+
+    /// <summary>Lo que se le pidió mandar a la tele (mensajes AVISO).</summary>
+    public List<string> AvisosATele { get; } = [];
+    public void AvisarATele(string texto) => AvisosATele.Add(texto);
+    public void Audio(TipoCambioAudio tipo, params string[] exes) => CambioDeAudio?.Invoke(new CambioAudio(tipo, exes));
 
     public OpcionesEmision? Opciones { get; private set; }
     public Task Empezo => _empezo.Task;

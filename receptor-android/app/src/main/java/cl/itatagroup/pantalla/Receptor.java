@@ -82,6 +82,10 @@ public class Receptor extends Activity {
     private int buferSesionMs = -1;
     private final Handler hiloPrincipal = new Handler(Looper.getMainLooper());
     private final Runnable ocultarBarra = () -> barraSesion.setVisibility(View.GONE);
+    /** Cuánto dura un aviso del emisor sobre el vídeo. */
+    private static final int AVISO_MS = 6000;
+    private TextView franjaAviso;
+    private final Runnable ocultarAviso = () -> franjaAviso.setVisibility(View.GONE);
 
     // Actualizaciones: solo cuando se pulsa «Buscar actualización» (nunca sola), todo en el hilo de la interfaz y
     // solo en la pantalla de espera.
@@ -138,9 +142,17 @@ public class Receptor extends Activity {
         }
 
         @Override
+        public void aviso(String texto) {
+            runOnUiThread(() -> {
+                if (enSesion) mostrarAviso(texto);
+            });
+        }
+
+        @Override
         public void desconectado() {
             runOnUiThread(() -> {
                 enSesion = false;
+                ocultarAvisoYa();
                 buferSesionMs = -1;
                 ajustarProporcion(0, 0);
                 if (!esTv) {
@@ -170,6 +182,7 @@ public class Receptor extends Activity {
         video = (SurfaceView) findViewById(R.id.video);
         controles = findViewById(R.id.controles);
         aviso = (TextView) findViewById(R.id.aviso);
+        franjaAviso = (TextView) findViewById(R.id.franja_aviso);
         botonRetardo = (Button) findViewById(R.id.boton_retardo);
         botonActualizar = (Button) findViewById(R.id.boton_actualizar);
         botonBuscar = (Button) findViewById(R.id.boton_buscar);
@@ -294,6 +307,28 @@ public class Receptor extends Activity {
         // Lo que ocupan los botones abajo: en vertical, tres en columna; en horizontal, una fila.
         int abajo = Math.round((vertical ? 300 : 130) * densidad);
         textoEstado.setPadding(lado, 0, lado, abajo);
+    }
+
+    /**
+     * Un aviso del emisor: una franja abajo, legible a distancia, durante {@link #AVISO_MS}. Uno nuevo reemplaza al anterior y
+     * reinicia el tiempo. Solo en el hilo de la interfaz.
+     */
+    private void mostrarAviso(String texto) {
+        boolean vertical = getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
+        float densidad = getResources().getDisplayMetrics().density;
+        // 24 sp en la tele (se mira de lejos); en un teléfono o tablet, algo menos, y en vertical menos aún para que quepa.
+        franjaAviso.setTextSize(esTv ? 24 : vertical ? 18 : 20);
+        int lado = Math.round((vertical ? 24 : 48) * densidad);
+        franjaAviso.setPadding(lado, franjaAviso.getPaddingTop(), lado, franjaAviso.getPaddingBottom());
+        franjaAviso.setText(texto);
+        franjaAviso.setVisibility(View.VISIBLE);
+        hiloPrincipal.removeCallbacks(ocultarAviso);
+        hiloPrincipal.postDelayed(ocultarAviso, AVISO_MS);
+    }
+
+    private void ocultarAvisoYa() {
+        hiloPrincipal.removeCallbacks(ocultarAviso);
+        franjaAviso.setVisibility(View.GONE);
     }
 
     private boolean esTelevision() {

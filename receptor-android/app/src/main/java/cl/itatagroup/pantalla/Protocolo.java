@@ -19,6 +19,13 @@ final class Protocolo {
     static final int PEDIR_CLAVE = 0x40;
     /** Receptor → emisor: quien mira terminó («Terminar» o Atrás). El emisor se detiene sin reintentar. */
     static final int TERMINAR = 0x41;
+    /**
+     * Emisor → receptor: un texto corto (UTF-8, hasta {@link #MAX_AVISO}) que la tele muestra unos segundos sobre el vídeo.
+     * Desde la 0.9.0 del receptor; los anteriores lo ignoran.
+     */
+    static final int AVISO = 0x50;
+    /** Tope de la carga de un AVISO, en bytes. */
+    static final int MAX_AVISO = 500;
 
     /** Tope de una carga: un fotograma clave de 1080p no llega a 2 MB. */
     static final int MAX_CARGA = 8 * 1024 * 1024;

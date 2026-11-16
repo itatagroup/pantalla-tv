@@ -61,8 +61,26 @@ internal interface IEmision
 {
     event Action<EstadoEmision>? CambioDeEstado;
     event Action<Estadisticas>? NuevasEstadisticas;
+    /// <summary>Lo que pasa con el sonido separado de la tele (H3): programas que pasan a la tele, que vuelven al PC, o con ventanas en las dos pantallas.</summary>
+    event Action<CambioAudio>? CambioDeAudio;
+    /// <summary>Manda un texto a la tele (mensaje <see cref="Protocolo.Aviso"/>). No bloquea; si no hay conexión, se pierde.</summary>
+    void AvisarATele(string texto);
     Task EjecutarAsync(Receptor receptor, OpcionesEmision op, Telemetria? telemetria, CancellationToken ct);
 }
+
+/// <summary>Qué cambió con el sonido separado de la tele (H3).</summary>
+internal enum TipoCambioAudio
+{
+    /// <summary>Programas que pasaron a la tele y están sonando: siguen por la salida vieja hasta que pausan y vuelven a reproducir.</summary>
+    PasaronATele,
+    /// <summary>Programas que volvieron al PC y están sonando: siguen por VB-CABLE (mudos) hasta que pausan y vuelven a reproducir.</summary>
+    VolvieronAlPc,
+    /// <summary>Todos los programas que ahora están en la tele y además tienen ventanas en otra pantalla (la lista completa, puede quedar vacía).</summary>
+    TambienEnPc,
+}
+
+/// <param name="Exes">Rutas de .exe.</param>
+internal sealed record CambioAudio(TipoCambioAudio Tipo, IReadOnlyCollection<string> Exes);
 
 internal sealed class Emision : IEmision
 {
@@ -114,6 +132,7 @@ internal sealed class Emision : IEmision
 
     public event Action<EstadoEmision>? CambioDeEstado;
     public event Action<Estadisticas>? NuevasEstadisticas;
+    public event Action<CambioAudio>? CambioDeAudio;
 
     private ulong AhoraUs => (ulong)(_reloj.ElapsedTicks * 1_000_000L / Stopwatch.Frequency);
 
@@ -167,6 +186,12 @@ internal sealed class Emision : IEmision
                 Task.Run(() => CapturarAsync(candidatas, rutaFfmpeg, op, receptor, fin.Token), CancellationToken.None),
             };
 
+            if (audio is AudioExclusivo exclusivo)
+            {
+                exclusivo.PasaronATele += exes => CambioDeAudio?.Invoke(new CambioAudio(TipoCambioAudio.PasaronATele, exes));
+                exclusivo.VolvieronAlPc += exes => CambioDeAudio?.Invoke(new CambioAudio(TipoCambioAudio.VolvieronAlPc, exes));
+                exclusivo.CambioTambienEnPc += exes => CambioDeAudio?.Invoke(new CambioAudio(TipoCambioAudio.TambienEnPc, [.. exes]));
+            }
             audio?.Iniciar(EncolarAudio);
 
             try
@@ -264,6 +289,16 @@ internal sealed class Emision : IEmision
         _audio.Writer.TryWrite(Protocolo.Armar(Protocolo.Audio, ahora > duracion ? ahora - duracion : 0, pcm));
         _hay.Release();
         Interlocked.Increment(ref _paquetesAudio);
+    }
+
+    /// <summary>
+    /// Va por la cola del audio (la que sale primero y nunca bloquea: si se llena, descarta lo más viejo). Se puede llamar desde
+    /// cualquier hilo.
+    /// </summary>
+    public void AvisarATele(string texto)
+    {
+        _audio.Writer.TryWrite(Protocolo.ArmarAviso(texto, AhoraUs));
+        _hay.Release();
     }
 
     private bool EncolarVideo(byte[] mensaje)

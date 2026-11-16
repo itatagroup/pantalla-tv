@@ -27,6 +27,8 @@ final class Protocolo {
     static final int PEDIR_CLAVE = 0x40;
     /** Receptor → emisor: quien mira terminó («Terminar» o Atrás). Se deja de transmitir sin reintentar. */
     static final int TERMINAR = 0x41;
+    /** Emisor → receptor: un texto corto para mostrar en la tele (desde el receptor 0.9.0). Esta app no lo manda. */
+    static final int AVISO = 0x50;
 
     static final int MAX_CARGA = 8 * 1024 * 1024;
 

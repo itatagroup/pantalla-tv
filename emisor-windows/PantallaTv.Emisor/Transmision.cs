@@ -22,6 +22,18 @@ internal sealed class Transmision
     public string Estado { get; set; } = "";
     public required EnVivo Vivo { get; init; }
 
+    /// <summary>La emisión en curso: <see cref="Mando"/> le manda los avisos para la tele.</summary>
+    internal IEmision? Emision { get; set; }
+
+    /// <summary>
+    /// Programas que ahora tienen ventanas en la tele y en otra pantalla (su sonido sale por la tele): rutas de .exe.
+    /// Solo en el hilo de la interfaz.
+    /// </summary>
+    public IReadOnlyCollection<string> TambienEnPc { get; set; } = [];
+
+    /// <summary>Los de <see cref="TambienEnPc"/> de los que ya se avisó en esta transmisión (una sola vez por programa).</summary>
+    internal HashSet<string> TambienEnPcAvisados { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     internal CancellationTokenSource? Cancelar { get; set; }
     internal Task? Tarea { get; set; }
 

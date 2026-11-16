@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace PantallaTv.Emisor;
 
@@ -24,6 +24,12 @@ internal sealed class EmisionPersistente : IEmision
 
     public event Action<EstadoEmision>? CambioDeEstado;
     public event Action<Estadisticas>? NuevasEstadisticas;
+    public event Action<CambioAudio>? CambioDeAudio;
+
+    /// <summary>El intento en curso (entre dos intentos no hay ninguno y el aviso se pierde).</summary>
+    private volatile Emision? _actual;
+
+    public void AvisarATele(string texto) => _actual?.AvisarATele(texto);
 
     public async Task EjecutarAsync(Receptor receptor, OpcionesEmision op, Telemetria? telemetria, CancellationToken ct)
     {
@@ -35,15 +41,21 @@ internal sealed class EmisionPersistente : IEmision
             // Los errores del intento no se muestran tal cual: aquí se decide si son un «reconectando».
             emision.CambioDeEstado += e => { if (e.Fase != Fase.Error) CambioDeEstado?.Invoke(e); };
             emision.NuevasEstadisticas += e => NuevasEstadisticas?.Invoke(e);
+            emision.CambioDeAudio += c => CambioDeAudio?.Invoke(c);
+            _actual = emision;
 
             var reloj = Stopwatch.StartNew();
             try
             {
                 await emision.EjecutarAsync(receptor, op, telemetria, ct);
+                _actual = null;
                 return; // detenida por el usuario
             }
             catch (EmisionException e)
             {
+                _actual = null;
+                // El intento siguiente arranca su propio audio exclusivo desde cero: la lista de la fila no puede quedar vieja.
+                CambioDeAudio?.Invoke(new CambioAudio(TipoCambioAudio.TambienEnPc, []));
                 if (reloj.Elapsed >= DuracionQueReinicia)
                 {
                     espera = EsperaInicial;

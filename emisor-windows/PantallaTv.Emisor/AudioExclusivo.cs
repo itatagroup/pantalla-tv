@@ -25,6 +25,7 @@ internal sealed class AudioExclusivo : IFuenteAudio
     private readonly IRutasAudio _rutas;
     private readonly IFabricaCaptura _fabrica;
     private readonly RutasPersistidas _guardadas;
+    private readonly IActividadAudio? _actividad;
     private readonly MezcladorPcm _mezclador = new();
     private readonly object _cerrojo = new();
     private readonly CancellationTokenSource _fin = new();
@@ -55,6 +56,12 @@ internal sealed class AudioExclusivo : IFuenteAudio
     /// </summary>
     public event Action<IReadOnlyList<string>>? PasaronATele;
 
+    /// <summary>
+    /// Programas que acaban de volver al PC (rutas de .exe). Su sonido seguía yendo a VB-CABLE (sin capturar, así que mudo)
+    /// hasta que pausan y vuelven a reproducir: H3 lo avisa con esta lista. Solo los que están sonando en ese momento.
+    /// </summary>
+    public event Action<IReadOnlyList<string>>? VolvieronAlPc;
+
     /// <summary>Cambió la lista de <see cref="TambienEnPc"/>.</summary>
     public event Action<IReadOnlyCollection<string>>? CambioTambienEnPc;
 
@@ -62,13 +69,14 @@ internal sealed class AudioExclusivo : IFuenteAudio
     public AudioExclusivo(Rectangle monitor)
         : this(monitor, IdDelCable() ?? throw new InvalidOperationException("No está VB-CABLE: no se puede separar el sonido de la tele."),
             new VentanasWindows(), new ProcesosWindows(), new RutasWindows(), new FabricaCapturaWindows(),
-            new RutasPersistidas(RutasPersistidas.RutaPorDefecto))
+            new RutasPersistidas(RutasPersistidas.RutaPorDefecto), new ActividadAudioWindows())
     {
     }
 
     internal AudioExclusivo(Rectangle monitor, string idCable, IVentanas ventanas, IProcesos procesos, IRutasAudio rutas,
-        IFabricaCaptura fabrica, RutasPersistidas guardadas)
+        IFabricaCaptura fabrica, RutasPersistidas guardadas, IActividadAudio? actividad = null)
     {
+        _actividad = actividad;
         _monitor = monitor;
         _idCable = idCable;
         _ventanas = ventanas;
@@ -145,6 +153,9 @@ internal sealed class AudioExclusivo : IFuenteAudio
             var ventanas = _ventanas.Listar();
             var seleccion = SeleccionAudio.Elegir(ventanas, _monitor);
             var diferencia = DiferenciaApps.Calcular(_enTele, seleccion.EnTele);
+            // Solo se avisa de los que están sonando: uno en silencio tomará la salida nueva cuando suene, sin que nadie haga nada.
+            // Se mide ahora, antes de que el resto de la mirada cambie rutas y capturas. Sin cambios no se gasta nada.
+            var (entraronSonando, salieronSonando) = QuienSuena(diferencia);
 
             foreach (var exe in diferencia.Salen) Registro.Anotar($"audio exclusivo: {DiferenciaApps.Nombre(exe)} sale de la tele");
             foreach (var exe in diferencia.Entran) Registro.Anotar($"audio exclusivo: {DiferenciaApps.Nombre(exe)} pasa a la tele");
@@ -167,9 +178,23 @@ internal sealed class AudioExclusivo : IFuenteAudio
                 _guardadas.RestaurarTodo(_rutas, _procesos, _enTele);
             RevisarSalidaPorDefecto();
 
-            if (diferencia.Entran.Count > 0) PasaronATele?.Invoke(diferencia.Entran);
+            if (entraronSonando.Count > 0) PasaronATele?.Invoke(entraronSonando);
+            if (salieronSonando.Count > 0) VolvieronAlPc?.Invoke(salieronSonando);
             if (cambioEnPc) CambioTambienEnPc?.Invoke([.. _tambienEnPc]);
         }
+    }
+
+    /// <summary>
+    /// De los programas que entran y de los que salen, los que tienen audio sonando ahora. Sin <see cref="IActividadAudio"/>
+    /// (las pruebas antiguas) no se filtra nada.
+    /// </summary>
+    private (IReadOnlyList<string> Entraron, IReadOnlyList<string> Salieron) QuienSuena(DiferenciaApps diferencia)
+    {
+        if (_actividad is null) return (diferencia.Entran, diferencia.Salen);
+        if (!diferencia.HayCambios) return ([], []);
+        var sonando = _actividad.PidsSonando();
+        return (ProgramasSonando.Filtrar(diferencia.Entran, _procesos.De([.. diferencia.Entran]), sonando),
+                ProgramasSonando.Filtrar(diferencia.Salen, _procesos.De([.. diferencia.Salen]), sonando));
     }
 
     /// <summary>Anota lo que había y manda a todos los procesos del programa a VB-CABLE (los que ya estaban fijados no se tocan).</summary>

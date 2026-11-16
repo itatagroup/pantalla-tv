@@ -44,6 +44,13 @@ internal static class Protocolo
     /// reintentar, aunque tenga «Reconectar» activado. Desde la 0.10.0 del emisor y la 0.7.0 del receptor.
     /// </summary>
     public const byte Terminar = 0x41;
+    /// <summary>
+    /// Emisor → receptor: un texto corto (UTF-8, hasta <see cref="MaxAviso"/> bytes) que la tele muestra unos segundos sobre el
+    /// vídeo. Desde el receptor 0.9.0; los anteriores ignoran los tipos que no conocen.
+    /// </summary>
+    public const byte Aviso = 0x50;
+    /// <summary>Tope de la carga de un <see cref="Aviso"/>, en bytes.</summary>
+    public const int MaxAviso = 500;
 
     public const int LargoCabecera = 13;
     public const int MaxCarga = 8 * 1024 * 1024;
@@ -80,6 +87,23 @@ internal static class Protocolo
         c[17] = interactiva ? BanderaInteractiva : (byte)0;
         return Armar(Hello, 0, c);
     }
+
+    /// <summary>El texto en UTF-8, recortado a <see cref="MaxAviso"/> bytes en un límite de carácter (nunca a mitad de uno).</summary>
+    public static byte[] CargaDeAviso(string texto)
+    {
+        var total = 0;
+        var fin = 0;
+        foreach (var r in texto.EnumerateRunes())
+        {
+            total += r.Utf8SequenceLength;
+            if (total > MaxAviso) break;
+            fin += r.Utf16SequenceLength;
+        }
+        return Encoding.UTF8.GetBytes(texto[..fin]);
+    }
+
+    /// <summary>El mensaje <see cref="Aviso"/> con ese texto.</summary>
+    public static byte[] ArmarAviso(string texto, ulong ptsUs) => Armar(Aviso, ptsUs, CargaDeAviso(texto));
 
     /// <summary>Lee un mensaje completo; devuelve null si el otro lado cerró la conexión.</summary>
     public static async Task<Mensaje?> LeerAsync(Stream flujo, CancellationToken ct)

@@ -45,6 +45,16 @@ Todos con la misma cabecera de 13 bytes (enteros en *big-endian*):
 | `0x31` | `PONG` | ambos | los mismos 8 bytes del `PING` |
 | `0x40` | `PEDIR_CLAVE` | receptor → emisor | vacía: «mándame un fotograma clave ya» |
 | `0x41` | `TERMINAR` | receptor → emisor | vacía: la persona que mira terminó («Terminar» o Atrás). El emisor se detiene **sin reintentar**, aunque tenga activado reconectar. El receptor lo manda y recién después cierra. Desde el emisor de Windows 0.10.0, el emisor Android 0.4.0 y el receptor 0.7.0; un emisor anterior lo ignora y se reconecta como ante un corte |
+| `0x50` | `AVISO` | emisor → receptor | texto UTF-8 de hasta 500 bytes (el emisor lo recorta en un límite de carácter): un aviso corto para la persona que mira. Ver «Avisos en la tele». Desde el receptor 0.9.0; los anteriores lo ignoran |
+
+## Avisos en la tele (desde la 0.9.0 del receptor)
+
+`AVISO` (`0x50`) lleva un texto corto que el receptor muestra en una franja abajo, sobre el vídeo: fondo oscuro semitransparente,
+texto blanco grande (24 sp en una tele), hasta 3 líneas y **6 s**. Uno nuevo reemplaza al anterior y reinicia los 6 s; al terminar la
+sesión la franja se esconde. El emisor de Windows lo usa para avisar del sonido separado de la tele («Microsoft Edge pasó a la tele:
+pausa y vuelve a reproducir para que suene allá»). El receptor descarta la carga vacía, de más de 500 bytes o con UTF-8 mal formado. Un
+receptor anterior ignora el tipo (no hace falta negociar versión: `VERSION` no cambia), así que un emisor nuevo con una tele vieja
+simplemente no muestra nada. El emisor Android no lo manda.
 
 ## Búfer (desde la 0.6.0 del receptor; antes «retardo a propósito»)
 

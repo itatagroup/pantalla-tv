@@ -50,6 +50,23 @@
       <Button android:id="@+id/boton_buscar" style="@style/Boton" android:text="@string/buscar"/>
     </LinearLayout>
   </LinearLayout>
+  <!-- Durante una sesión: un aviso del emisor, abajo y sobre el vídeo; se va solo a los 6 s. -->
+  <TextView
+      android:id="@+id/franja_aviso"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_gravity="bottom"
+      android:background="#CC000000"
+      android:gravity="center"
+      android:maxLines="3"
+      android:ellipsize="end"
+      android:paddingBottom="20dp"
+      android:paddingLeft="48dp"
+      android:paddingRight="48dp"
+      android:paddingTop="20dp"
+      android:textColor="#FFFFFF"
+      android:textSize="24sp"
+      android:visibility="gone"/>
   <!-- Solo en teléfonos y tablets, durante una sesión: aparece unos segundos al tocar la pantalla. -->
   <LinearLayout
       android:id="@+id/barra_sesion"
