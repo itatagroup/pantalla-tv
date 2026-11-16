@@ -26,7 +26,7 @@ if (o.Listar)
 }
 
 var elegida = ListaMonitores.Elegir(salidas, o.Monitor);
-if (o.Fuente) return Fuente60.Ejecutar(elegida, o.Segundos);
+if (o.Fuente) return Fuente60.Ejecutar(elegida, o.Segundos, o.SinVsync, o.Bombear);
 var (adaptador, salida) = PantallaTv.Emisor.Nativa.Gpu.Buscar(elegida.Dispositivo, 0, 0)
     ?? throw new InvalidOperationException($"{elegida.Dispositivo} desapareció");
 var (dev, ctx) = PantallaTv.Emisor.Nativa.Gpu.Abrir(adaptador);
@@ -37,6 +37,7 @@ using var sombreador = o.Conversion == Conversion.Sombreador ? new ConversorSomb
 using var vp = o.Conversion == Conversion.ProcesadorVideo ? new ConversorProcesadorVideo(dev, ctx, imagen, captura.Ancho, captura.Alto, o.Fps) : null;
 void Convertir(DestinoNv12 d)
 {
+    if (o.SinConvertir) return;
     if (sombreador is not null) sombreador.Convertir(captura.Vista, captura.Ancho, captura.Alto, d);
     else vp!.Convertir(d);
 }

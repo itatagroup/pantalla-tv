@@ -29,6 +29,12 @@ internal sealed record Opciones
     public bool Listar { get; init; }
     /// <summary>En vez de medir, abrir una fuente fiable de 60 fps sobre el monitor (<see cref="Fuente60"/>).</summary>
     public bool Fuente { get; init; }
+    /// <summary>Fuente: Present(0) con ritmo propio de 60 Hz en vez de sincronía vertical.</summary>
+    public bool SinVsync { get; init; }
+    /// <summary>Fuente: bombear mensajes de ventana en cada cuadro (no una vez por segundo).</summary>
+    public bool Bombear { get; init; }
+    /// <summary>Medición: no convertir a NV12 (solo contar lo que entrega la duplicación).</summary>
+    public bool SinConvertir { get; init; }
     /// <summary>Guardar el primer cuadro NV12 convertido como PNG (para revisar colores).</summary>
     public string? Captura { get; init; }
 
@@ -36,6 +42,8 @@ internal sealed record Opciones
         CapturaPrueba — prototipo N1: duplicación de escritorio → NV12 en la GPU → H.264 por hardware.
           --listar                       salidas de vídeo (índice, nombre, posición)
           --fuente                       no mide: abre una fuente de 60 fps a pantalla completa en --monitor durante --seg
+          --sin-vsync  --bombear         fuente: Present(0) a 60 Hz propios / bombear mensajes en cada cuadro
+          --sin-convertir                medición: no convertir a NV12 (con --codificador ninguno: solo contar cuadros)
           --monitor N|\\.\DISPLAYn|virtual  monitor a capturar (por defecto 0)
           --codificador mf|av|ninguno    Media Foundation, libavcodec (h264_amf) o solo capturar y convertir
           --tasa cbr|vbr                 control de tasa (vbr = vbr_latency sin relleno en AMF)
@@ -64,6 +72,9 @@ internal sealed record Opciones
             {
                 "--listar" => o with { Listar = true },
                 "--fuente" => o with { Fuente = true },
+                "--sin-vsync" => o with { SinVsync = true },
+                "--bombear" => o with { Bombear = true },
+                "--sin-convertir" => o with { SinConvertir = true },
                 "--monitor" => o with { Monitor = Valor() },
                 "--codificador" => o with
                 {

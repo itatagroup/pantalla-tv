@@ -14,7 +14,7 @@ namespace PantallaTv.Captura.Prueba;
 /// </summary>
 internal static class Fuente60
 {
-    public static int Ejecutar(SalidaDxgi monitor, int segundos)
+    public static int Ejecutar(SalidaDxgi monitor, int segundos, bool sinVsync = false, bool bombear = false)
     {
         using var forma = new Form
         {
@@ -62,8 +62,17 @@ internal static class Fuente60
                 ctx1.ClearView(destino, new Color4(i % 2, (i / 2) % 2, (i / 4) % 2, 1),
                     [new Vortice.RawRect(x, i * monitor.Alto / 8, x + 120, (i + 1) * monitor.Alto / 8)]);
             }
-            cadena.Present(1, PresentFlags.None).CheckError();
+            if (sinVsync)
+            {
+                // Ritmo propio de 60 Hz: espera hasta el instante del cuadro (espera activa al final).
+                var objetivo = (long)(cuadro * 1000.0 / 60);
+                while (reloj.ElapsedMilliseconds < objetivo)
+                    if (objetivo - reloj.ElapsedMilliseconds > 2) Thread.Sleep(1); else Thread.SpinWait(50);
+                cadena.Present(0, PresentFlags.None).CheckError();
+            }
+            else cadena.Present(1, PresentFlags.None).CheckError();
             enSegundo++;
+            if (bombear) Application.DoEvents();
             if (reloj.ElapsedMilliseconds >= siguiente)
             {
                 Console.WriteLine($"{siguiente / 1000,3}  {enSegundo,4}");
