@@ -27,11 +27,16 @@ internal sealed record Estadisticas(double Fps, double Mbps, int Tirados, double
 /// <param name="MonitorNombre">Nombre de Windows del monitor (<c>\\.\DISPLAY2</c>): la tubería nativa lo vuelve a buscar por nombre tras un cambio.</param>
 /// <param name="LatidoFps">Tubería nativa: con la pantalla quieta, cuadros por segundo que se recodifican (ver <see cref="Nativa.TuberiaNativa"/>).</param>
 /// <param name="Cursor">Tubería nativa: dibujar el puntero (ffmpeg lo dibuja siempre).</param>
+/// <param name="AudioDeMonitor">
+/// Rectángulo del monitor transmitido, en píxeles del escritorio: pide el audio exclusivo (F5), es decir, que las apps con
+/// ventana en él suenen solo en la tele (<see cref="AudioExclusivo"/>, requiere VB-CABLE). Null = la captura de todo el PC de
+/// siempre, con <paramref name="SilenciarPc"/>. Si el audio exclusivo no se puede abrir, se vuelve a esa.
+/// </param>
 internal sealed record OpcionesEmision(
     int Fps, int Kbps, int Ancho, int Alto, bool Interactiva, string? RutaFfmpeg, string? Tuberia = null,
     bool ConAudio = false, bool SilenciarPc = false, int SegClave = 0, string? ExtraCodificador = null,
     int Monitor = 0, int Adaptador = 0, string? MonitorNombre = null,
-    int LatidoFps = Nativa.TuberiaNativa.LatidoPorDefecto, bool Cursor = true)
+    int LatidoFps = Nativa.TuberiaNativa.LatidoPorDefecto, bool Cursor = true, System.Drawing.Rectangle? AudioDeMonitor = null)
 {
     public Nativa.OpcionesNativa ParaNativa() =>
         new(MonitorNombre, Adaptador, Monitor, Ancho, Alto, Fps, Kbps, LatidoFps, SegClave, Cursor);
@@ -149,7 +154,7 @@ internal sealed class Emision : IEmision
             using var cliente = new TcpClient { NoDelay = true };
             await ConectarAsync(cliente, receptor, ct);
             var red = cliente.GetStream();
-            using var audio = op.ConAudio ? AbrirAudio(op.SilenciarPc) : null;
+            using var audio = op.ConAudio ? AbrirAudio(op) : null;
             await SaludarAsync(red, op, audio?.Tasa ?? 0, audio?.Canales ?? 2, ct);
 
             using var fin = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -227,11 +232,22 @@ internal sealed class Emision : IEmision
     }
 
     /// <summary>Si no hay dispositivo de sonido (o falla), se transmite solo vídeo.</summary>
-    private CapturaAudio? AbrirAudio(bool silenciarPc)
+    private IFuenteAudio? AbrirAudio(OpcionesEmision op)
     {
+        if (op.AudioDeMonitor is { } monitor)
+        {
+            try
+            {
+                return new AudioExclusivo(monitor);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                Registro.Anotar($"audio exclusivo no disponible ({e.Message}); se usa la captura de todo el PC");
+            }
+        }
         try
         {
-            return new CapturaAudio(silenciarPc);
+            return new CapturaAudio(op.SilenciarPc);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

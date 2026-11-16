@@ -10,7 +10,7 @@ namespace PantallaTv.Emisor;
 /// PantallaTv.exe --descubrir [--seg 6]
 /// PantallaTv.exe --cli --ip 10.0.0.20 [--puerto 5600] [--fps 60] [--kbps 8000] [--seg 30] [--telemetria] [--sin-audio] [--no-silenciar] [--tuberia nativa|amf-gpu|amf|nvenc|qsv|mf|x264] (sin --tuberia: la nativa y, si falla, las de ffmpeg si está) [--clave 4] [--codec-extra "-enforce_hrd 0"] [--monitor 1|virtual|virtual2|virtual3|virtual4] [--reconectar]
 ///     (solo con la nativa:) [--latido 30] [--sin-cursor]; --kbps es el tope y --clave, una clave de seguridad (0 = solo a pedido)
-/// PantallaTv.exe --monitores | --audio-info | --quitar-silencio
+/// PantallaTv.exe --monitores | --audio-info | --quitar-silencio | --restaurar-audio
 /// PantallaTv.exe --diagnostico   (informe para mandar si algo no funciona; queda en %LOCALAPPDATA%\PantallaTv\)
 /// PantallaTv.exe --monitor-virtual estado|conectar [n]|desconectar [n]   (hasta 4 monitores virtuales; sin n, el 1; estado los lista todos)
 /// PantallaTv.exe --manifiesto-url https://servidor/emisor-windows.json
@@ -26,12 +26,13 @@ internal static class Cli
     [DllImport("kernel32.dll")]
     private static extern bool AttachConsole(int pid);
 
-    public static bool Pedido(string[] args) => args.Contains("--cli") || args.Contains("--diagnostico") || args.Contains("--descubrir") || args.Contains("--audio-info") || args.Contains("--quitar-silencio") || args.Contains("--monitores") || args.Contains("--monitor-virtual");
+    public static bool Pedido(string[] args) => args.Contains("--cli") || args.Contains("--diagnostico") || args.Contains("--descubrir") || args.Contains("--audio-info") || args.Contains("--quitar-silencio") || args.Contains("--restaurar-audio") || args.Contains("--monitores") || args.Contains("--monitor-virtual");
 
     public static async Task<int> EjecutarAsync(string[] args)
     {
         var conConsola = AttachConsole(-1); // la consola de quien nos lanzó (el programa es de ventanas)
         if (args.Contains("--diagnostico")) return Diagnosticar(conConsola);
+        if (args.Contains("--restaurar-audio")) return RestaurarAudio();
         if (args.Contains("--quitar-silencio")) return QuitarSilencio();
         if (args.Contains("--audio-info")) return AudioInfo();
         if (args.Contains("--monitor-virtual"))
@@ -136,6 +137,20 @@ internal static class Cli
         foreach (var linea in LineasMonitorVirtual()) Console.WriteLine(linea);
         return 0;
     }
+    /// <summary>
+    /// Rescate del audio exclusivo (F5): devuelve la salida de las apps que mandamos a la tele y se quedaron así porque el
+    /// programa se cerró de golpe, y quita el silencio del PC (lo mismo que <c>--quitar-silencio</c>).
+    /// Una app que no está abierta no se puede tocar: queda anotada y se devuelve la próxima vez que se abra el programa.
+    /// </summary>
+    private static int RestaurarAudio()
+    {
+        var r = AudioExclusivo.RestaurarPendientes();
+        foreach (var exe in r.Restauradas) Console.WriteLine($"devuelta la salida de {exe}");
+        foreach (var exe in r.Pendientes) Console.WriteLine($"pendiente (no está abierta, abre la app y vuelve a correr esto): {exe}");
+        if (r.Restauradas.Count == 0 && r.Pendientes.Count == 0) Console.WriteLine("no había rutas de audio anotadas");
+        return QuitarSilencio();
+    }
+
     /// <summary>Rescate: si el programa se cerró de golpe mientras tenía silenciado el PC.</summary>
     private static int QuitarSilencio()
     {

@@ -23,6 +23,12 @@ internal static class Program
             return 0;
         }
 
+        // Si una sesión anterior se cayó con apps mandadas a la tele (F5), se les devuelve su salida. Después de la instancia única:
+        // una segunda copia no debe deshacer lo que la primera está usando. Antes de abrir la ventana (sin archivo no cuesta
+        // nada): en segundo plano podía cruzarse con una transmisión recién empezada y devolver una ruta que esta acaba de poner.
+        try { AudioExclusivo.RestaurarPendientes(); }
+        catch (Exception e) when (e is not OutOfMemoryException) { Registro.Error("audio exclusivo: no se pudieron devolver las rutas pendientes", e); }
+
         ApplicationConfiguration.Initialize();
         Application.Run(new TrayApp(mostrar: !oculto, Cli.UrlManifiesto(args)));
         return 0;

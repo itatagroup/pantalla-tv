@@ -52,11 +52,24 @@ internal static class ConversorPcm
     }
 }
 
+/// <summary>Lo que <see cref="Emision"/> necesita de una fuente de audio: la captura de todo el PC o la exclusiva de la tele.</summary>
+internal interface IFuenteAudio : IDisposable
+{
+    /// <summary>Muestras por segundo del flujo que se manda.</summary>
+    int Tasa { get; }
+
+    /// <summary>1 o 2.</summary>
+    int Canales { get; }
+
+    /// <summary>Empieza a entregar paquetes de <see cref="CapturaAudio.MsPorPaquete"/> ms de PCM de 16 bits.</summary>
+    void Iniciar(Action<byte[]> alTenerPaquete);
+}
+
 /// <summary>
 /// Captura lo que suena en el PC (WASAPI en modo bucle, el dispositivo de salida por defecto) y lo
 /// entrega en paquetes de 20 ms de PCM de 16 bits. Mientras no suena nada, Windows no entrega datos.
 /// </summary>
-internal sealed class CapturaAudio : IDisposable
+internal sealed class CapturaAudio : IFuenteAudio
 {
     public const int MsPorPaquete = 20;
 

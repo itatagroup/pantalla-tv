@@ -64,6 +64,24 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Para las pruebas: deja lista la pantalla (si no, <see cref="Monitores.Preparar"/>, que conecta el monitor virtual).</summary>
     internal Func<string?, Action<string>?, (int Ancho, int Alto, int Hz)?, Monitores.Preparado>? Preparador { get; init; }
 
+    /// <summary>Para las pruebas: si está VB-CABLE (si no, <see cref="AudioExclusivo.HayCable"/>).</summary>
+    internal Func<bool> HayCable { get; init; } = AudioExclusivo.HayCable;
+
+    /// <summary>Para las pruebas: el rectángulo del monitor en el escritorio (si no, el de <see cref="Monitores.Pantallas"/>); null si no se encuentra.</summary>
+    internal Func<Monitor, System.Drawing.Rectangle?> LimitesDeMonitor { get; init; } = LimitesEnElEscritorio;
+
+    /// <summary>
+    /// ¿Se usa el audio exclusivo de la tele (F5: las apps con ventana en el monitor suenan solo allí) en vez de silenciar todo el
+    /// PC? Solo si se envía sonido, el usuario quiere el PC en silencio, hay VB-CABLE y se transmite un monitor que no es el
+    /// principal: con el principal, donde está todo, o sin cable, se sigue como siempre.
+    /// </summary>
+    internal static bool UsaAudioExclusivo(bool conSonido, bool silenciarPc, bool esPrincipal, bool hayCable) =>
+        conSonido && silenciarPc && !esPrincipal && hayCable;
+
+    private static System.Drawing.Rectangle? LimitesEnElEscritorio(Monitor monitor) =>
+        Monitores.Pantallas().Where(p => string.Equals(p.Nombre, monitor.Nombre, StringComparison.OrdinalIgnoreCase))
+            .Select(p => (System.Drawing.Rectangle?)p.Limites).FirstOrDefault();
+
     /// <param name="tvs">Las TV que se ven en la red ahora (el <see cref="Descubridor"/>).</param>
     /// <param name="propio">Lo que se libera con el mando (el descubridor).</param>
     /// <param name="comprobador">El que busca versiones nuevas (null = no se busca: las pruebas que no lo usan).</param>
@@ -600,8 +618,12 @@ internal sealed partial class Mando : IDisposable
                     Registro.Anotar($"cuadros por segundo: {fps} en vez de {a.Fps} (la pantalla va a {preparado.Hz ?? tele?.Hz} Hz)");
                     EnLaInterfaz(() => vivo.FpsPedidos = fps);
                 }
+                // Con VB-CABLE y un monitor que no es el principal, el sonido de las apps de ese monitor va solo a la tele.
+                var audioDeMonitor = UsaAudioExclusivo(conSonido, a.SilenciarPc, monitor.Principal, conSonido && HayCable())
+                    ? LimitesDeMonitor(monitor) : null;
                 var op = new OpcionesEmision(fps, a.Kbps, monitor.Ancho, monitor.Alto, esVirtual, null,
-                    Tuberia: a.Tuberia, ConAudio: conSonido, SilenciarPc: conSonido && a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre);
+                    Tuberia: a.Tuberia, ConAudio: conSonido, SilenciarPc: conSonido && a.SilenciarPc, Monitor: monitor.Salida, Adaptador: monitor.Adaptador, MonitorNombre: monitor.Nombre,
+                    AudioDeMonitor: audioDeMonitor);
                 await emision.EjecutarAsync(receptor, op, telemetria, ct);
             }
             catch (EmisionException e)
