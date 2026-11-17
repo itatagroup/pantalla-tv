@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 
 namespace PantallaTv.Emisor;
@@ -106,7 +106,7 @@ internal sealed class DescargadorFfmpeg : IDisposable
             return new ResultadoFfmpeg(null, "Descarga cancelada.", Cancelada: true);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or IOException or UnauthorizedAccessException
-                                      or InvalidDataException or DescargaFfmpegException)
+                                      or InvalidDataException or DescargaVerificadaException)
         {
             var motivo = e is OperationCanceledException ? "se agotó el tiempo" : e.Message;
             Registro.Error($"ffmpeg: descarga rechazada: {motivo}");
@@ -120,13 +120,24 @@ internal sealed class DescargadorFfmpeg : IDisposable
         }
     }
 
-    private async Task BajarAsync(string destino, Action<int>? avance, CancellationToken ct)
+    private Task BajarAsync(string destino, Action<int>? avance, CancellationToken ct) =>
+        BajarVerificadoAsync(_http, _origen.Url, _origen.Tamano, _origen.Sha256, destino, EsSegura, avance, ct);
+
+    /// <summary>
+    /// Baja <paramref name="url"/> a <paramref name="destino"/> comprobando que llegue por https (también tras las redirecciones),
+    /// con exactamente <paramref name="tamano"/> bytes y el SHA-256 <paramref name="sha256"/>. Lanza
+    /// <see cref="DescargaVerificadaException"/> si algo no cuadra (el que llama borra el archivo). Avance de 0 a 90.
+    /// Lo usan ffmpeg y VB-CABLE.
+    /// </summary>
+    internal static async Task BajarVerificadoAsync(HttpClient http, Uri url, long tamano, string sha256, string destino,
+        Func<Uri?, bool> esSegura, Action<int>? avance, CancellationToken ct)
     {
-        using var resp = await _http.GetAsync(_origen.Url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        ComprobarSegura(resp);
+        using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (!esSegura(resp.RequestMessage?.RequestUri))
+            throw new DescargaVerificadaException("la respuesta no llegó por https: " + resp.RequestMessage?.RequestUri);
         resp.EnsureSuccessStatusCode();
-        if (resp.Content.Headers.ContentLength is { } anunciado && anunciado != _origen.Tamano)
-            throw new DescargaFfmpegException($"el servidor anuncia {anunciado} bytes y se esperaban {_origen.Tamano}");
+        if (resp.Content.Headers.ContentLength is { } anunciado && anunciado != tamano)
+            throw new DescargaVerificadaException($"el servidor anuncia {anunciado} bytes y se esperaban {tamano}");
 
         using var huella = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         long total = 0;
@@ -139,10 +150,10 @@ internal sealed class DescargadorFfmpeg : IDisposable
             while ((leidos = await origen.ReadAsync(buf, ct).ConfigureAwait(false)) > 0)
             {
                 total += leidos;
-                if (total > _origen.Tamano) throw new DescargaFfmpegException($"la descarga pasa de los {_origen.Tamano} bytes esperados");
+                if (total > tamano) throw new DescargaVerificadaException($"la descarga pasa de los {tamano} bytes esperados");
                 huella.AppendData(buf, 0, leidos);
                 await archivo.WriteAsync(buf.AsMemory(0, leidos), ct).ConfigureAwait(false);
-                var porcentaje = (int)(total * 90 / _origen.Tamano);
+                var porcentaje = (int)(total * 90 / tamano);
                 if (porcentaje != ultimo)
                 {
                     ultimo = porcentaje;
@@ -150,9 +161,9 @@ internal sealed class DescargadorFfmpeg : IDisposable
                 }
             }
         }
-        if (total != _origen.Tamano) throw new DescargaFfmpegException($"llegaron {total} bytes y se esperaban {_origen.Tamano}");
+        if (total != tamano) throw new DescargaVerificadaException($"llegaron {total} bytes y se esperaban {tamano}");
         var sha = Convert.ToHexStringLower(huella.GetHashAndReset());
-        if (sha != _origen.Sha256) throw new DescargaFfmpegException($"la huella SHA-256 no coincide (llegó {sha}); se borró lo descargado");
+        if (sha != sha256) throw new DescargaVerificadaException($"la huella SHA-256 no coincide (llegó {sha}); se borró lo descargado");
     }
 
     /// <summary>Saca del zip (ya verificado) solo <c>ffmpeg.exe</c>, sin fiarse de ninguna otra entrada ni de rutas de dentro del zip.</summary>
@@ -160,9 +171,9 @@ internal sealed class DescargadorFfmpeg : IDisposable
     {
         using var archivo = ZipFile.OpenRead(zip);
         var entrada = archivo.Entries.FirstOrDefault(e => string.Equals(e.FullName, _origen.EntradaZip, StringComparison.OrdinalIgnoreCase))
-                      ?? throw new DescargaFfmpegException($"el zip no trae {_origen.EntradaZip}");
+                      ?? throw new DescargaVerificadaException($"el zip no trae {_origen.EntradaZip}");
         if (entrada.Length is <= 0 or > TamanoMaximoExe)
-            throw new DescargaFfmpegException($"{entrada.Name} pesa {entrada.Length} bytes, algo no cuadra");
+            throw new DescargaVerificadaException($"{entrada.Name} pesa {entrada.Length} bytes, algo no cuadra");
         long total = 0;
         var ultimo = -1;
         await using (var origen = entrada.Open())
@@ -173,7 +184,7 @@ internal sealed class DescargadorFfmpeg : IDisposable
             while ((leidos = await origen.ReadAsync(buf, ct).ConfigureAwait(false)) > 0)
             {
                 total += leidos;
-                if (total > entrada.Length) throw new DescargaFfmpegException("el contenido pasa de lo que dice el zip");
+                if (total > entrada.Length) throw new DescargaVerificadaException("el contenido pasa de lo que dice el zip");
                 await salida.WriteAsync(buf.AsMemory(0, leidos), ct).ConfigureAwait(false);
                 var porcentaje = 90 + (int)(total * 10 / entrada.Length);
                 if (porcentaje != ultimo)
@@ -183,18 +194,11 @@ internal sealed class DescargadorFfmpeg : IDisposable
                 }
             }
         }
-        if (total != entrada.Length) throw new DescargaFfmpegException("el contenido es más corto de lo que dice el zip");
+        if (total != entrada.Length) throw new DescargaVerificadaException("el contenido es más corto de lo que dice el zip");
     }
 
     private bool EsSegura(Uri? u) =>
         u is not null && (u.Scheme == Uri.UriSchemeHttps || (_permitirHttpLocal && u.Scheme == Uri.UriSchemeHttp && u.IsLoopback));
-
-    /// <summary>La dirección pedida y la final (tras las redirecciones) tienen que ser https.</summary>
-    private void ComprobarSegura(HttpResponseMessage resp)
-    {
-        if (!EsSegura(resp.RequestMessage?.RequestUri))
-            throw new DescargaFfmpegException("la respuesta no llegó por https: " + resp.RequestMessage?.RequestUri);
-    }
 
     private static void Borrar(string ruta)
     {
@@ -205,4 +209,5 @@ internal sealed class DescargadorFfmpeg : IDisposable
     public void Dispose() => _http.Dispose();
 }
 
-internal sealed class DescargaFfmpegException(string mensaje) : Exception(mensaje);
+/// <summary>Lo descargado no es lo esperado (tamaño, huella, https, contenido del zip): se descarta.</summary>
+internal sealed class DescargaVerificadaException(string mensaje) : Exception(mensaje);

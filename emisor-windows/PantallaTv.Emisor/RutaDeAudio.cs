@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 
 namespace PantallaTv.Emisor;
@@ -39,6 +39,45 @@ internal static class DispositivosAudio
         lista.FirstOrDefault(d => d.Nombre.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase)
                                   && d.Nombre.Contains("VB-Audio", StringComparison.OrdinalIgnoreCase))
         ?? lista.FirstOrDefault(d => d.Nombre.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Pone esa salida como la por defecto de Windows en los tres roles (consola, multimedia y comunicaciones), con
+    /// <c>IPolicyConfig</c> (interfaz no documentada que usan las herramientas de sonido; medido en F4). Se usa para devolver la
+    /// que había cuando VB-CABLE se pone sola como predeterminada al instalarse.
+    /// </summary>
+    public static void PonerPorDefecto(string mmDeviceId)
+    {
+        var politica = (IPolicyConfig)new PolicyConfigClient();
+        try
+        {
+            for (var rol = 0; rol < 3; rol++) Marshal.ThrowExceptionForHR(politica.SetDefaultEndpoint(mmDeviceId, rol));
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(politica);
+        }
+    }
+
+    [ComImport, Guid("870af99c-171d-4f9e-af0d-e63df40c2bc9")]
+    private class PolicyConfigClient;
+
+    /// <summary>Solo se llama a <see cref="SetDefaultEndpoint"/>: los métodos anteriores están para respetar el orden de la tabla.</summary>
+    [ComImport, Guid("f8679f50-850a-41cf-9c72-430f290290c8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IPolicyConfig
+    {
+        [PreserveSig] int GetMixFormat([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr formato);
+        [PreserveSig] int GetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string id, int porDefecto, IntPtr formato);
+        [PreserveSig] int ResetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string id);
+        [PreserveSig] int SetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr formato, IntPtr mezcla);
+        [PreserveSig] int GetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string id, int porDefecto, IntPtr a, IntPtr b);
+        [PreserveSig] int SetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr periodo);
+        [PreserveSig] int GetShareMode([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr modo);
+        [PreserveSig] int SetShareMode([MarshalAs(UnmanagedType.LPWStr)] string id, IntPtr modo);
+        [PreserveSig] int GetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string id, int fx, IntPtr clave, IntPtr valor);
+        [PreserveSig] int SetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string id, int fx, IntPtr clave, IntPtr valor);
+        [PreserveSig] int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string id, int rol);
+        [PreserveSig] int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string id, int visible);
+    }
 
     public static List<InfoDispositivo> Listar()
     {
