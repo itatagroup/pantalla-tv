@@ -64,8 +64,12 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Para las pruebas: deja lista la pantalla (si no, <see cref="Monitores.Preparar"/>, que conecta el monitor virtual).</summary>
     internal Func<string?, Action<string>?, (int Ancho, int Alto, int Hz)?, Monitores.Preparado>? Preparador { get; init; }
 
-    /// <summary>Para las pruebas: si está VB-CABLE (si no, <see cref="AudioExclusivo.HayCable"/>).</summary>
-    internal Func<bool> HayCable { get; init; } = AudioExclusivo.HayCable;
+    /// <summary>
+    /// Para las pruebas: si está VB-CABLE (si no, <see cref="AudioExclusivo.HayCable"/>). Con <c>PANTALLATV_SIN_VBCABLE=1</c> el
+    /// programa hace como si no estuviera (para ver la ventana sin él en un PC que lo tiene).
+    /// </summary>
+    internal Func<bool> HayCable { get; init; } =
+        Environment.GetEnvironmentVariable("PANTALLATV_SIN_VBCABLE") == "1" ? () => false : AudioExclusivo.HayCable;
 
     /// <summary>Para las pruebas: el rectángulo del monitor en el escritorio (si no, el de <see cref="Monitores.Pantallas"/>); null si no se encuentra.</summary>
     internal Func<Monitor, System.Drawing.Rectangle?> LimitesDeMonitor { get; init; } = LimitesEnElEscritorio;

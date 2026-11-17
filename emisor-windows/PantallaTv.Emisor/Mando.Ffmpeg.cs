@@ -1,4 +1,4 @@
-namespace PantallaTv.Emisor;
+﻿namespace PantallaTv.Emisor;
 
 /// <summary>
 /// ffmpeg de respaldo, visto desde la ventana: saber si está, bajarlo con avance y poder cancelar. Solo se baja cuando la
@@ -36,7 +36,7 @@ internal sealed partial class Mando
         var o = DescargadorFfmpeg.Fijado;
         return $"Se va a descargar ffmpeg {o.Version} (compilación «essentials» de Gyan Doshi, licencia GPL v3) desde {o.Url.Host}, "
                + $"unos {o.Tamano / 1048576} MB. Se comprueba su huella SHA-256 y se guarda solo ffmpeg.exe en {Ffmpeg.CarpetaDatos}. "
-               + "Sirve de respaldo si la captura propia no funciona en este PC. Es lo único que el programa baja de internet además de las actualizaciones.";
+               + "Sirve de respaldo si la captura propia no funciona en este PC. Solo se baja porque lo pediste (como las actualizaciones y VB-CABLE).";
     }
 
     public void DescargarFfmpegAhora() => _ = DescargarFfmpegAsync();

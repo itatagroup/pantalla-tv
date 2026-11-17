@@ -89,8 +89,9 @@ internal sealed class VentanaPrincipal : Form
     private readonly Boton _ffmpeg = new() { Text = "Descargar ff&mpeg…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaFfmpeg = new() { UseMnemonic = false };
     private readonly Boton _vbCable = new() { Text = "Instalar &VB-CABLE…", Estilo = EstiloBoton.Secundario };
-    /// <summary>Con un enlace para donar a VB-Audio (lo pide su licencia).</summary>
-    private readonly LinkLabel _notaVbCable = new() { UseMnemonic = false, LinkBehavior = LinkBehavior.AlwaysUnderline };
+    /// <summary>Su licencia pide que la persona pueda donar a VB-Audio: botón propio, siempre a la vista.</summary>
+    private readonly Boton _donarVbCable = new() { Text = "Donar a VB-Audio…", Estilo = EstiloBoton.Secundario };
+    private readonly Label _notaVbCable = new() { UseMnemonic = false };
     private readonly Label _notaBloqueoAvanzado = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
     private readonly Boton _buscarAhora = new() { Text = "B&uscar actualizaciones", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaActualizaciones = new() { UseMnemonic = false };
@@ -144,7 +145,7 @@ internal sealed class VentanaPrincipal : Form
         _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _notaModoVirtual,
             _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
-            _ffmpeg, _notaFfmpeg, _vbCable, _notaVbCable, _buscarAhora, _notaActualizaciones]);
+            _ffmpeg, _notaFfmpeg, _vbCable, _donarVbCable, _notaVbCable, _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
@@ -152,7 +153,7 @@ internal sealed class VentanaPrincipal : Form
         OrdenTab(_vivo, _etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_filas.Select(f => f.Detener).ToArray());
         OrdenTab(_sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _vbCable, _buscarAhora);
+        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _vbCable, _donarVbCable, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
         foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _etiquetaModoVirtual, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
@@ -179,7 +180,7 @@ internal sealed class VentanaPrincipal : Form
         _diagnostico.Click += (_, _) => _mando.Diagnosticar();
         _ffmpeg.Click += (_, _) => AlPulsarFfmpeg();
         _vbCable.Click += (_, _) => AlPulsarVbCable();
-        _notaVbCable.LinkClicked += (_, _) =>
+        _donarVbCable.Click += (_, _) =>
         {
             try { Process.Start(new ProcessStartInfo(DescargadorVbCable.UrlDonar) { UseShellExecute = true })?.Dispose(); }
             catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Registro.Error("no se pudo abrir la página para donar", e); }
@@ -669,12 +670,12 @@ internal sealed class VentanaPrincipal : Form
             }
             cy = Nota(_notaFfmpeg, relleno, cy + S(6), interior);
             cy += S(14);
-            var anchoVbCable = TextRenderer.MeasureText(_vbCable.Text.Replace("&", ""), _vbCable.Font).Width + S(34);
-            if (_vbCable.Visible)
-            {
-                Poner(_vbCable, relleno - S(3), cy - S(3), anchoVbCable + S(6), altoBoton + S(6));
-                cy += altoBoton;
-            }
+            var anchoVbCable = _vbCable.Visible ? TextRenderer.MeasureText(_vbCable.Text.Replace("&", ""), _vbCable.Font).Width + S(34) : 0;
+            var anchoDonar = TextRenderer.MeasureText(_donarVbCable.Text, _donarVbCable.Font).Width + S(34);
+            if (_vbCable.Visible) Poner(_vbCable, relleno - S(3), cy - S(3), anchoVbCable + S(6), altoBoton + S(6));
+            var xDonar = relleno + (_vbCable.Visible ? anchoVbCable + S(8) : 0);
+            Poner(_donarVbCable, xDonar - S(3), cy - S(3), anchoDonar + S(6), altoBoton + S(6));
+            cy += altoBoton;
             cy = Nota(_notaVbCable, relleno, cy + S(6), interior);
             cy += S(14);
             var anchoBuscar = TextRenderer.MeasureText(_buscarAhora.Text.Replace("&", ""), _buscarAhora.Font).Width + S(34);
@@ -731,14 +732,7 @@ internal sealed class VentanaPrincipal : Form
         var estado = m.EstadoVbCable ?? (hay
             ? "VB-CABLE está instalado: lo del monitor virtual suena solo en la tele y el PC sigue sonando."
             : "VB-CABLE (opcional) permite que el PC siga sonando mientras la tele oye solo lo del monitor virtual. Se instala solo con tu confirmación.");
-        const string donar = "Donar a VB-Audio";
-        var texto = $"{estado} {DescargadorVbCable.Creditos} {donar}.";
-        if (_notaVbCable.Text != texto)
-        {
-            _notaVbCable.Text = texto;
-            _notaVbCable.LinkArea = new LinkArea(texto.Length - donar.Length - 1, donar.Length);
-        }
-        _notaVbCable.LinkColor = _notaVbCable.ActiveLinkColor = _notaVbCable.VisitedLinkColor = _notaVbCable.ForeColor;
+        _notaVbCable.Text = $"{estado} {DescargadorVbCable.Creditos}";
     }
 
     private void AlPulsarVbCable()

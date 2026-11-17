@@ -201,7 +201,7 @@ internal sealed class AsistenteInstalacion : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(600, 500);
+        ClientSize = new Size(600, 590); // con las casillas del monitor virtual y de VB-CABLE y sus notas
         BackColor = Color.White;
         ForeColor = Texto;
         Font = new Font("Segoe UI", 9.75f);
@@ -299,7 +299,7 @@ internal sealed class AsistenteInstalacion : Form
         _notaMonitorVirtual.Visible = conMonitorVirtual;
         _notaMonitorVirtual.Text = "Un segundo monitor que no existe: se conecta solo mientras transmites. Pide permiso de administrador.";
         _notaMonitorVirtual.Dock = DockStyle.Top;
-        _notaMonitorVirtual.Height = 24;
+        _notaMonitorVirtual.Height = 40;
         _notaMonitorVirtual.Padding = new Padding(18, 0, 0, 0);
         _notaMonitorVirtual.ForeColor = TextoSuave;
 

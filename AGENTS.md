@@ -73,5 +73,6 @@ respaldo opcional (`IFuenteVideo`, en `FuenteVideo.cs`).
   (si no, la instancia única le pide al instalado que muestre su ventana y se cierra) y, para capturas,
   `PANTALLATV_TEMA=claro|oscuro`.
 - Para probar el respaldo de captura: `PANTALLATV_FALLO_NATIVA=inicio|seguido`.
+- Para ver la ventana sin VB-CABLE en un PC que lo tiene: `PANTALLATV_SIN_VBCABLE=1` (tampoco usa el audio exclusivo).
 - No uses una TV ajena ni una que alguien esté mirando para pruebas (`adb logcat -s Pantalla` muestra si hay una
   sesión en curso).
