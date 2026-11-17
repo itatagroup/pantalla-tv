@@ -1,3 +1,4 @@
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
@@ -87,6 +88,9 @@ internal sealed class VentanaPrincipal : Form
     private readonly Label _notaDiagnostico = new() { UseMnemonic = false };
     private readonly Boton _ffmpeg = new() { Text = "Descargar ff&mpeg…", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaFfmpeg = new() { UseMnemonic = false };
+    private readonly Boton _vbCable = new() { Text = "Instalar &VB-CABLE…", Estilo = EstiloBoton.Secundario };
+    /// <summary>Con un enlace para donar a VB-Audio (lo pide su licencia).</summary>
+    private readonly LinkLabel _notaVbCable = new() { UseMnemonic = false, LinkBehavior = LinkBehavior.AlwaysUnderline };
     private readonly Label _notaBloqueoAvanzado = new() { Text = Mando.PorQueBloqueado, UseMnemonic = false };
     private readonly Boton _buscarAhora = new() { Text = "B&uscar actualizaciones", Estilo = EstiloBoton.Secundario };
     private readonly Label _notaActualizaciones = new() { UseMnemonic = false };
@@ -140,7 +144,7 @@ internal sealed class VentanaPrincipal : Form
         _ajustes.Controls.AddRange([_notaBloqueo, _sonido, _silenciar, _notaSilenciar, _inicio, _notaInicio]);
         _avanzado.Controls.AddRange([_notaBloqueoAvanzado, _etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _notaModoVirtual,
             _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _notaDiagnostico,
-            _ffmpeg, _notaFfmpeg, _buscarAhora, _notaActualizaciones]);
+            _ffmpeg, _notaFfmpeg, _vbCable, _notaVbCable, _buscarAhora, _notaActualizaciones]);
 
         // Orden de tabulación = orden en pantalla.
         OrdenTab(_banda, _principal, _ajustes, _expansor, _avanzado, _botonSalir);
@@ -148,7 +152,7 @@ internal sealed class VentanaPrincipal : Form
         OrdenTab(_vivo, _etiquetaTv, _tvs, _escribirIp, _abrirRed, _etiquetaPantalla, _pantallas, _instalarVirtual, _boton);
         OrdenTab(_filas.Select(f => f.Detener).ToArray());
         OrdenTab(_sonido, _silenciar, _inicio);
-        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _buscarAhora);
+        OrdenTab(_etiquetaForma, _forma, _etiquetaModoVirtual, _modoVirtual, _reinstalarVirtual, _quitarVirtual, _reubicarVirtual, _reconectar, _telemetria, _abrirTelemetria, _diagnostico, _ffmpeg, _vbCable, _buscarAhora);
         foreach (var l in Notas().Append(_version).Append(_estado).Append(_textoBanda)) l.TabStop = false;
         foreach (var l in new[] { _etiquetaTv, _etiquetaPantalla, _etiquetaForma, _etiquetaModoVirtual, _version }) l.TextAlign = ContentAlignment.MiddleLeft;
         _avanzado.Visible = false;
@@ -174,6 +178,12 @@ internal sealed class VentanaPrincipal : Form
         _abrirTelemetria.Click += (_, _) => Mando.AbrirTelemetria();
         _diagnostico.Click += (_, _) => _mando.Diagnosticar();
         _ffmpeg.Click += (_, _) => AlPulsarFfmpeg();
+        _vbCable.Click += (_, _) => AlPulsarVbCable();
+        _notaVbCable.LinkClicked += (_, _) =>
+        {
+            try { Process.Start(new ProcessStartInfo(DescargadorVbCable.UrlDonar) { UseShellExecute = true })?.Dispose(); }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Registro.Error("no se pudo abrir la página para donar", e); }
+        };
         _actualizar.Click += (_, _) => _mando.ActualizarAhora();
         _despues.Click += (_, _) => _mando.PosponerActualizacion();
         _buscarAhora.Click += (_, _) => _mando.BuscarActualizacionesAhora();
@@ -363,7 +373,10 @@ internal sealed class VentanaPrincipal : Form
             _telemetria.Checked = m.Ajustes.GuardarTelemetria;
             foreach (var c in new Control[] { _sonido, _reconectar, _telemetria, _forma }) c.Enabled = editable;
             _silenciar.Enabled = m.PuedeSilenciar;
-            _notaSilenciar.Visible = editable && !m.Ajustes.ConAudio;
+            // «Solo si se envía el sonido» o, si haría falta, el aviso de que falta VB-CABLE.
+            var faltaCable = m.AvisoFaltaVbCable();
+            _notaSilenciar.Text = faltaCable ?? "Solo si se envía el sonido.";
+            _notaSilenciar.Visible = faltaCable is not null || (editable && !m.Ajustes.ConAudio);
 
             var puedeInicio = m.PuedeIniciarConWindows;
             _inicio.Enabled = puedeInicio;
@@ -376,6 +389,7 @@ internal sealed class VentanaPrincipal : Form
                 $"Solo cuando lo pulsas: mira en GitHub si hay una versión publicada, sin enviar nada. Versión instalada: {Instalacion.Version}.";
 
             if (_abierto) RefrescarFfmpeg(m);
+            if (_abierto) RefrescarVbCable(m);
             _diagnostico.Enabled = m.PuedeDiagnosticar;
             _notaDiagnostico.Text = m.Diagnosticando ? "Preparando el diagnóstico (unos segundos)…"
                 : transmitiendo ? "Detén la transmisión para hacer el diagnóstico: prueba la captura."
@@ -480,7 +494,7 @@ internal sealed class VentanaPrincipal : Form
     }
 
     private IEnumerable<Label> Notas() =>
-        [_notaTvs, _notaVirtual, _notaOtra, .. _filas.Select(f => f.Nota), _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual, _notaFfmpeg];
+        [_notaTvs, _notaVirtual, _notaOtra, .. _filas.Select(f => f.Nota), _notaBloqueo, _notaSilenciar, _notaInicio, _notaDiagnostico, _notaBloqueoAvanzado, _notaActualizaciones, _notaModoVirtual, _notaFfmpeg, _notaVbCable];
 
     private static IEnumerable<Control> Todos(Control raiz)
     {
@@ -655,6 +669,14 @@ internal sealed class VentanaPrincipal : Form
             }
             cy = Nota(_notaFfmpeg, relleno, cy + S(6), interior);
             cy += S(14);
+            var anchoVbCable = TextRenderer.MeasureText(_vbCable.Text.Replace("&", ""), _vbCable.Font).Width + S(34);
+            if (_vbCable.Visible)
+            {
+                Poner(_vbCable, relleno - S(3), cy - S(3), anchoVbCable + S(6), altoBoton + S(6));
+                cy += altoBoton;
+            }
+            cy = Nota(_notaVbCable, relleno, cy + S(6), interior);
+            cy += S(14);
             var anchoBuscar = TextRenderer.MeasureText(_buscarAhora.Text.Replace("&", ""), _buscarAhora.Font).Width + S(34);
             Poner(_buscarAhora, relleno - S(3), cy + S(4) - S(3), anchoBuscar + S(6), altoBoton + S(6));
             cy += S(4) + altoBoton;
@@ -697,6 +719,32 @@ internal sealed class VentanaPrincipal : Form
         _notaFfmpeg.Text = m.EstadoFfmpeg ?? (ruta is not null
             ? $"ffmpeg (respaldo de la captura): encontrado en {ruta}."
             : "ffmpeg no está instalado. No hace falta salvo que la captura propia no funcione en este PC. Se descarga solo con tu confirmación.");
+    }
+
+    /// <summary>VB-CABLE: el botón para instalarlo (con confirmación) y la nota con los créditos y el enlace para donar.</summary>
+    private void RefrescarVbCable(Mando m)
+    {
+        var hay = m.HayVbCable;
+        _vbCable.Visible = !hay;
+        _vbCable.Enabled = m.PuedeInstalarVbCable;
+        _vbCable.Text = m.InstalandoVbCable ? "Instalando VB-CABLE…" : "Instalar &VB-CABLE…";
+        var estado = m.EstadoVbCable ?? (hay
+            ? "VB-CABLE está instalado: lo del monitor virtual suena solo en la tele y el PC sigue sonando."
+            : "VB-CABLE (opcional) permite que el PC siga sonando mientras la tele oye solo lo del monitor virtual. Se instala solo con tu confirmación.");
+        const string donar = "Donar a VB-Audio";
+        var texto = $"{estado} {DescargadorVbCable.Creditos} {donar}.";
+        if (_notaVbCable.Text != texto)
+        {
+            _notaVbCable.Text = texto;
+            _notaVbCable.LinkArea = new LinkArea(texto.Length - donar.Length - 1, donar.Length);
+        }
+        _notaVbCable.LinkColor = _notaVbCable.ActiveLinkColor = _notaVbCable.VisitedLinkColor = _notaVbCable.ForeColor;
+    }
+
+    private void AlPulsarVbCable()
+    {
+        var r = MessageBox.Show(this, Mando.TextoConfirmacionVbCable(), "Instalar VB-CABLE", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (r == DialogResult.OK) _mando.InstalarVbCableAhora();
     }
 
     private void AlPulsarFfmpeg()

@@ -179,3 +179,29 @@ public sealed class DescargadorVbCableTests : IDisposable
         Assert.Equal(Instalador, o.Instalador);
     }
 }
+
+public sealed class AvisoVbCableTests
+{
+    [Theory]
+    [InlineData(true, true, false, false, true)]   // monitor virtual con sonido y PC en silencio, sin cable: avisar
+    [InlineData(true, true, false, true, false)]   // ya está el cable
+    [InlineData(true, true, true, false, false)]   // pantalla principal: no hace falta
+    [InlineData(false, true, false, false, false)] // sin sonido
+    [InlineData(true, false, false, false, false)] // el PC no se silencia
+    public void Se_avisa_solo_cuando_haria_falta(bool sonido, bool silenciar, bool principal, bool cable, bool avisa) =>
+        Assert.Equal(avisa, Mando.HaceFaltaVbCable(sonido, silenciar, principal, () => cable));
+
+    [Fact]
+    public void El_cable_no_se_mira_si_no_hace_falta() =>
+        Assert.False(Mando.HaceFaltaVbCable(true, true, esPrincipal: true, () => throw new InvalidOperationException("no se debía mirar")));
+
+    [Fact]
+    public void La_confirmacion_dice_de_donde_que_pide_permiso_y_los_creditos()
+    {
+        var t = Mando.TextoConfirmacionVbCable();
+        Assert.Contains("download.vb-audio.com", t);
+        Assert.Contains("administrador", t);
+        Assert.Contains("VB-Audio", t);
+        Assert.Contains(DescargadorVbCable.UrlDonar, t);
+    }
+}
