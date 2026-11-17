@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace PantallaTv.Emisor;
 
@@ -77,6 +77,7 @@ internal static class Instalador
             // ejecutable, y la marca que dice que es nuestro vive en la clave que Desinstalar borra.
             Instalacion.ComprobarCerrado(id);
             var avisoControlador = QuitarControladorSiCorresponde(id, silencioso, args.Contains("--quitar-monitor-virtual"));
+            if (QuitarVbCableSiCorresponde(silencioso) is { } avisoCable) avisoControlador = avisoControlador is null ? avisoCable : avisoControlador + "\n\n" + avisoCable;
             Instalacion.Desinstalar(id);
             if (!silencioso)
                 MessageBox.Show($"{Instalacion.Nombre} se quitó de este equipo." + (avisoControlador is null ? "" : "\n\n" + avisoControlador),
@@ -126,6 +127,23 @@ internal static class Instalador
         };
     }
 
+    /// <summary>
+    /// Si VB-CABLE lo instaló Pantalla TV y sigue instalado, pregunta si quitarlo (por defecto No: otros programas pueden usarlo).
+    /// En la desinstalación silenciosa no se toca. Devuelve un aviso para el mensaje final, o null.
+    /// </summary>
+    private static string? QuitarVbCableSiCorresponde(bool silencioso)
+    {
+        if (silencioso || !DebePreguntarPorElControlador(DescargadorVbCable.LoInstalamosNosotros(), AudioExclusivo.HayCable())) return null;
+        if (MessageBox.Show(
+                "¿Quitar también VB-CABLE?\n\nLo instaló Pantalla TV para que el PC siga sonando al transmitir. Quitarlo pide permiso de " +
+                "administrador. Si otro programa lo usa, responde No.",
+                TituloDesinstalar, MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return null;
+        using var descargador = DescargadorVbCable.Crear();
+        var r = descargador.Quitar();
+        return r.Hecho ? "VB-CABLE quitado." : r.Motivo;
+    }
+
     /// <summary>Solo se pregunta si lo instalamos nosotros y sigue instalado.</summary>
     internal static bool DebePreguntarPorElControlador(bool loInstalamosNosotros, bool instalado) => loInstalamosNosotros && instalado;
 
@@ -157,6 +175,8 @@ internal sealed class AsistenteInstalacion : Form
     private readonly CheckBox _ffmpegAdjunto = new() { Text = "Instalar también el ffmpeg.exe que acompaña a este instalador", Checked = true, AutoSize = true, Visible = false };
     private readonly CheckBox _monitorVirtual = new() { Text = "Instalar el monitor virtual (para proyectar una ventana y seguir usando el PC)", Checked = true, AutoSize = true };
     private readonly Label _notaMonitorVirtual = new();
+    private readonly CheckBox _vbCable = new() { Text = "Instalar VB-CABLE para que el PC siga sonando mientras transmites el monitor virtual", AutoSize = true };
+    private readonly Label _notaVbCable = new();
     private readonly Label _resultado = new();
     private readonly CheckBox _abrir = new() { Text = "Abrir Pantalla TV ahora", Checked = true, AutoSize = true };
 
@@ -283,7 +303,17 @@ internal sealed class AsistenteInstalacion : Form
         _notaMonitorVirtual.Padding = new Padding(18, 0, 0, 0);
         _notaMonitorVirtual.ForeColor = TextoSuave;
 
-        foreach (var c in new[] { _menuInicio, _escritorio, _inicio, _ffmpegAdjunto, _monitorVirtual })
+        // VB-CABLE es opcional y de otro autor: desmarcado, y solo si no está.
+        var conVbCable = !AudioExclusivo.HayCable();
+        _vbCable.Visible = conVbCable;
+        _notaVbCable.Visible = conVbCable;
+        _notaVbCable.Text = DescargadorVbCable.Creditos + $" Se descarga de {DescargadorVbCable.Fijado.Url.Host} y pide permiso de administrador.";
+        _notaVbCable.Dock = DockStyle.Top;
+        _notaVbCable.Height = 40;
+        _notaVbCable.Padding = new Padding(18, 0, 0, 0);
+        _notaVbCable.ForeColor = TextoSuave;
+
+        foreach (var c in new[] { _menuInicio, _escritorio, _inicio, _ffmpegAdjunto, _monitorVirtual, _vbCable })
         {
             c.Dock = DockStyle.Top;
             c.Padding = new Padding(0, 4, 0, 4);
@@ -295,7 +325,7 @@ internal sealed class AsistenteInstalacion : Form
             Parrafo("Carpeta de instalación:", 24),
             fila,
             new Panel { Dock = DockStyle.Top, Height = 14 },
-            _menuInicio, _escritorio, _inicio, _monitorVirtual, _notaMonitorVirtual,
+            _menuInicio, _escritorio, _inicio, _monitorVirtual, _notaMonitorVirtual, _vbCable, _notaVbCable,
             new Panel { Dock = DockStyle.Top, Height = 14 },
             Parrafo(ffmpeg, 60, color),
             _ffmpegAdjunto);
@@ -443,11 +473,35 @@ internal sealed class AsistenteInstalacion : Form
                 _ => "El monitor virtual no se pudo instalar: " + r.Detalle,
             };
         }
+        string? cable = null;
+        if (_vbCable.Visible && _vbCable.Checked)
+        {
+            // Descarga (~1 MB) y UAC: fuera del hilo de la ventana. Un fallo no deshace lo instalado.
+            _titulo.Text = "Instalando VB-CABLE…";
+            _atras.Enabled = _siguiente.Enabled = _cancelar.Enabled = false;
+            _ocupado = true;
+            ResultadoVbCable rc;
+            try
+            {
+                using var descargador = DescargadorVbCable.Crear();
+                rc = await Task.Run(() => descargador.InstalarAsync());
+            }
+            catch (Exception e) { rc = new ResultadoVbCable(false, e.Message); }
+            finally
+            {
+                _ocupado = false;
+                _atras.Enabled = _siguiente.Enabled = _cancelar.Enabled = true;
+            }
+            cable = rc.Hecho ? "VB-CABLE instalado. " + DescargadorVbCable.Creditos + " Para donar: " + DescargadorVbCable.UrlDonar
+                : rc.Rechazado ? "VB-CABLE no se instaló: no se dio permiso de administrador. Puedes instalarlo después desde la ventana, en «Avanzado»."
+                : (rc.Motivo ?? "VB-CABLE no se pudo instalar.") + " Puedes intentarlo después desde la ventana, en «Avanzado».";
+        }
         UseWaitCursor = false;
 
         _resultado.Text =
             $"Pantalla TV {Instalacion.Version} quedó instalado en:\n{Path.GetDirectoryName(_instaladoEn)}\n\n" +
             (monitor is null ? "" : monitor + "\n\n") +
+            (cable is null ? "" : cable + "\n\n") +
             "Vive como un ícono junto al reloj: clic derecho → «Transmitir a…».\n\n" +
             "En la tele, abre la app «Pantalla» antes de transmitir. La primera vez Windows puede preguntar si " +
             "permites a Pantalla TV usar la red: marca «Redes privadas» y acepta. Es para ver las teles de tu casa " +
