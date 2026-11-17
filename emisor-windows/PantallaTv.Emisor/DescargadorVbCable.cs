@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
@@ -114,6 +114,7 @@ internal sealed class DescargadorVbCable : IDisposable
 
             var defecto = _sistema.SalidaPorDefecto();
             var codigo = _sistema.EjecutarElevado(RutaInstalador, "-i -h");
+            EsperarCambioDeSalida(defecto);
             DevolverSalida(defecto);
             if (codigo != 0)
             {
@@ -159,6 +160,8 @@ internal sealed class DescargadorVbCable : IDisposable
             DevolverSalida(defecto);
             if (codigo != 0) return new ResultadoVbCable(false, $"El instalador de VB-CABLE terminó con el código {codigo}.");
             Borrar(RutaMarca);
+            try { Directory.Delete(CarpetaPaquete, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
             Registro.Anotar("VB-CABLE quitado");
             return new ResultadoVbCable(true, null);
         }
@@ -169,6 +172,24 @@ internal sealed class DescargadorVbCable : IDisposable
         catch (Exception e) when (e is Win32Exception or IOException or UnauthorizedAccessException)
         {
             return new ResultadoVbCable(false, "No se pudo quitar VB-CABLE: " + e.Message);
+        }
+    }
+
+    /// <summary>Cuánto se espera a que Windows ponga VB-CABLE por defecto tras instalarlo (el dispositivo aparece un poco después).</summary>
+    internal TimeSpan EsperaCambioDeSalida { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// El instalador puede terminar antes de que Windows registre el dispositivo nuevo y lo ponga por defecto: se espera a que la
+    /// salida cambie (o a que pase <see cref="EsperaCambioDeSalida"/>) para no devolverla antes de tiempo.
+    /// </summary>
+    private void EsperarCambioDeSalida(string? antes)
+    {
+        var hasta = Environment.TickCount64 + (long)EsperaCambioDeSalida.TotalMilliseconds;
+        while (Environment.TickCount64 < hasta)
+        {
+            try { if (!string.Equals(_sistema.SalidaPorDefecto(), antes, StringComparison.Ordinal)) return; }
+            catch (Exception e) when (e is COMException or InvalidOperationException) { return; }
+            Thread.Sleep(250);
         }
     }
 
@@ -233,8 +254,8 @@ internal sealed class DescargadorVbCable : IDisposable
                 WorkingDirectory = Path.GetDirectoryName(ruta)!,
                 WindowStyle = ProcessWindowStyle.Hidden,
             };
-            using var p = Process.Start(psi) ?? throw new Win32Exception("No se pudo iniciar el instalador de VB-CABLE.");
-            if (!p.WaitForExit(TimeSpan.FromMinutes(5))) throw new Win32Exception("El instalador de VB-CABLE no terminó en 5 minutos.");
+            using var p = Process.Start(psi) ?? throw new IOException("No se pudo iniciar el instalador de VB-CABLE.");
+            if (!p.WaitForExit(TimeSpan.FromMinutes(5))) throw new IOException("El instalador de VB-CABLE no terminó en 5 minutos.");
             return p.ExitCode;
         }
 
@@ -286,6 +307,7 @@ internal static class Firmas
         }
         finally
         {
+            Marshal.DestroyStructure<WINTRUST_FILE_INFO>(pArchivo); // libera la copia de la ruta
             Marshal.FreeHGlobal(pArchivo);
         }
     }

@@ -42,9 +42,10 @@ internal sealed partial class Mando
     public string? AvisoFaltaVbCable()
     {
         if (!Ajustes.ConAudio || !Ajustes.SilenciarPc || InstalandoVbCable) return null;
-        var elegida = PantallaLibreElegida();
-        var esPrincipal = MonitorVirtual.NumeroDeNombre(elegida) is null
-                          && (_monitores.FirstOrDefault(m => string.Equals(m.Nombre, elegida, StringComparison.OrdinalIgnoreCase))?.Principal ?? true);
+        // Mientras se transmite con sonido manda esa pantalla (la «próxima libre» sería otra); si no, la que se va a transmitir.
+        var pantalla = Transmisiones.FirstOrDefault(t => t.ConSonido)?.ClavePantalla ?? PantallaLibreElegida();
+        var esPrincipal = MonitorVirtual.NumeroDeNombre(pantalla) is null
+                          && (_monitores.FirstOrDefault(m => string.Equals(m.Nombre, pantalla, StringComparison.OrdinalIgnoreCase))?.Principal ?? true);
         return HaceFaltaVbCable(Ajustes.ConAudio, Ajustes.SilenciarPc, esPrincipal, () => HayVbCable) ? TextoFaltaVbCable : null;
     }
 
