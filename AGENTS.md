@@ -48,8 +48,10 @@ respaldo opcional (`IFuenteVideo`, en `FuenteVideo.cs`).
 
 1. **Sin telemetría ni conexiones nuevas a internet.** Las únicas salidas a internet son la búsqueda de
    actualizaciones, solo cuando el usuario pulsa «Buscar actualizaciones» (nada automático; contrato en `docs/actualizaciones.md`),
-   y la descarga de ffmpeg del emisor de Windows (`DescargadorFfmpeg`), solo cuando el usuario pulsa «Descargar ffmpeg» en
-   «Avanzado» y confirma: versión y huella SHA-256 fijadas en el código (ver `THIRD-PARTY.md`). Lo demás, solo red local: UDP 5601 (descubrimiento) y TCP 5600
+   la descarga de ffmpeg del emisor de Windows (`DescargadorFfmpeg`), solo cuando el usuario pulsa «Descargar ffmpeg» en
+   «Avanzado» y confirma, y la de **VB-CABLE** (`DescargadorVbCable`), solo cuando el usuario marca su casilla en el
+   instalador o pulsa «Instalar VB-CABLE…» en «Avanzado» y confirma: versión, huella SHA-256 (y firma, en VB-CABLE) fijadas
+   en el código (ver `THIRD-PARTY.md`). Lo demás, solo red local: UDP 5601 (descubrimiento) y TCP 5600
    (transmisión). Nada de servicios de terceros ni cuentas.
 2. **Apps de Android sin dependencias** (nada de AndroidX): los APK deben seguir siendo diminutos.
 3. **Pruebas en verde** antes de dar algo por terminado, y pruebas para lo que se cambie.

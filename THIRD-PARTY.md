@@ -56,6 +56,27 @@ Las apps de Android (`receptor-android/` y `emisor-android/`) **no usan ninguna 
 - `herramientas/empaquetar.ps1 -ConFfmpeg` permite a quien arma su propio instalador adjuntar un `ffmpeg.exe`
   suyo; en ese caso, quien lo distribuya debe cumplir la licencia de esa compilación.
 
+### VB-CABLE (salida de sonido virtual)
+
+- Proyecto: <https://vb-audio.com/Cable/>, de **VB-Audio Software (Vincent Burel)**. VB-CABLE estándar es
+  **donationware**: gratuito para uso personal, con la opción de donar. Su licencia
+  (<https://vb-audio.com/Services/licensing.htm>, leída el 16/11/2026) permite instalarlo junto a una aplicación si la
+  persona puede ver que es de VB-Audio y tiene la opción de donar; en empresas el que lo distribuye compra licencias. Solo
+  el VB-CABLE estándar, nunca A+B ni C+D.
+- Para qué: con VB-CABLE, lo que suena en el monitor virtual sale solo por la tele y **el PC sigue sonando** con lo demás
+  (sin él, el PC se silencia mientras transmite). Es opcional.
+- **No se incluye en el instalador.** Se descarga **solo si la persona lo pide**: casilla (desmarcada) del instalador o
+  «Avanzado › Instalar VB-CABLE…» con confirmación. Versión **fijada** en el código (`DescargadorVbCable.Fijado`):
+  - Qué: `VBCABLE_Driver_Pack46.zip` (1 324 680 bytes) de <https://download.vb-audio.com/Download_CABLE/>, por https.
+  - Verificación: SHA-256 `bc44e8974191a5a2427d6c979e2dab08dbb09925f3f435dfa2f0ba3e45b6eb90` y firma Authenticode de
+    `VBCABLE_Setup_x64.exe` (2.1.5.8) válida para Windows y con el certificado de «BUREL VINCENT Entrepreneur individuel»
+    (huella `A77952D93229D0EC36E2543081EEA7D125732B9C`). Si VB-Audio cambia el paquete con el mismo nombre, la huella
+    deja de coincidir y no se instala nada: hay que actualizar la versión fijada.
+  - Instalación: su propio instalador con permiso de administrador (`-i -h`); como VB-CABLE se pone solo como salida de
+    sonido por defecto, Pantalla TV devuelve la que había. Queda en `%LocalAppData%\PantallaTv\vbcable` con una marca;
+    al desinstalar Pantalla TV se pregunta si quitarlo (`-u -h`).
+  - Créditos y enlace para donar: en la ventana («Avanzado»), en la confirmación y en el instalador.
+
 ## Solo para desarrollo y pruebas (no van en el instalador)
 
 | Paquete | Versión | Licencia | Dónde |

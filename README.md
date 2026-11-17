@@ -3,6 +3,10 @@
 Ver la pantalla y oír el sonido de un PC con Windows o de un teléfono Android en la tele, por la red local.
 Software libre ([GPL-3.0](LICENSE)), en español.
 
+**Descargas: [releases de GitHub](https://github.com/itatagroup/pantalla-tv/releases)** — el programa del PC
+(`PantallaTvSetup-x.y.z.exe`), la app de la tele (`pantalla-receptor-x.y.z.apk`) y la del teléfono. Cada app tiene su
+versión y su release.
+
 ## Qué partes tiene
 
 - `receptor-android/` — la app **«Pantalla»** que recibe (Android 8+): la misma APK sirve en una tele o TV Box (con el
@@ -23,9 +27,10 @@ La captura es propia (duplicación de escritorio y Media Foundation, 60 fps con 
   Lo único que sale a internet es la **búsqueda de actualizaciones**, y **solo cuando pulsas el botón** «Buscar
   actualizaciones»: ninguna app se conecta sola. Es un GET sin datos al manifiesto firmado de esa app en este
   repositorio de GitHub (detalle en «Actualizaciones», más abajo). Nada se instala sin que lo confirmes.
-  La única otra salida es **descargar ffmpeg** (el respaldo de la captura), que el emisor de Windows hace
-  **solo si pulsas «Descargar ffmpeg» en «Avanzado» y confirmas**: una versión fijada, con su huella SHA-256
-  comprobada (ver `THIRD-PARTY.md`).
+  Las otras salidas son **descargar ffmpeg** (el respaldo de la captura) y **descargar VB-CABLE** (para que el PC
+  siga sonando mientras la tele oye solo lo del monitor virtual), que el emisor de Windows hace **solo si lo pides y
+  confirmas** («Avanzado», o la casilla del instalador para VB-CABLE): versiones fijadas, con su huella SHA-256 (y la
+  firma de VB-Audio) comprobadas (ver `THIRD-PARTY.md`).
 - Lo único que usa la red es esto, y solo dentro de tu red local:
   - **Descubrimiento**: la tele manda cada 2 s un anuncio **UDP** de difusión (broadcast) al puerto **5601**; el
     PC escucha ahí para mostrar las teles que ve (o puedes escribir la IP a mano).
