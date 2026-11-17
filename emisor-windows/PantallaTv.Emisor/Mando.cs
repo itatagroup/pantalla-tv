@@ -297,15 +297,25 @@ internal sealed partial class Mando : IDisposable
     }
 
     /// <summary>
+    /// Cuántos monitores virtuales se ofrecen en «Qué pantalla» (el controlador trae <see cref="Controlador.MonitoresVirtuales"/>).
+    /// Uno mientras dos teles a la vez estén en pausa: con dos virtuales en movimiento el controlador no pasa de ~20 cuadros/s.
+    /// </summary>
+    internal const int VirtualesALaVista = 1;
+
+    /// <summary>
     /// Los monitores reales (sin las salidas de los monitores virtuales, que van aparte con su nombre) y los monitores virtuales
-    /// instalados (hasta 4). Un virtual se conecta al escritorio solo mientras se transmite: listarlo no mueve nada.
+    /// instalados (hasta <see cref="VirtualesALaVista"/>). Un virtual se conecta al escritorio solo mientras se transmite: listarlo no mueve nada.
     /// </summary>
     /// <param name="ocupadas">Las pantallas que ya van a una TV (claves): se ven pero no se pueden elegir.</param>
     internal static Pantallas ArmarPantallas(IReadOnlyList<Monitor> todos, IReadOnlyList<(int Numero, string Dispositivo)> virtuales,
         string? elegido, ISet<string>? ocupadas = null)
     {
         bool Ocupada(string clave) => ocupadas is not null && ocupadas.Contains(clave);
+        // Solo los primeros VirtualesALaVista se ofrecen; si se había elegido uno escondido, se propone el 1.
+        // Las salidas escondidas tampoco son pantallas reales: se descartan con la lista completa.
         var reales = todos.Where(m => !virtuales.Any(v => string.Equals(m.Nombre, v.Dispositivo, StringComparison.OrdinalIgnoreCase))).ToList();
+        virtuales = [.. virtuales.Where(v => v.Numero <= VirtualesALaVista)];
+        if (MonitorVirtual.NumeroDeNombre(elegido) is > VirtualesALaVista) elegido = MonitorVirtual.NombreDeNumero(1);
         var numeroElegido = MonitorVirtual.NumeroDeNombre(elegido) is { } n && virtuales.Any(v => v.Numero == n) ? n : (int?)null;
         var real = numeroElegido is not null || reales.Count == 0 ? null : Monitores.Elegir(reales, m => m.Nombre == elegido);
         var opciones = reales.Select(m => new Opcion<string?>(m.ToString() + (Ocupada(m.Nombre) ? TextoEnUso : ""), m.Nombre,

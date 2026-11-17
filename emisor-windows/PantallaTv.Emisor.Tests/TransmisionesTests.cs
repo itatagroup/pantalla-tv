@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 
 namespace PantallaTv.Emisor.Tests;
 
@@ -397,9 +397,10 @@ public sealed class TransmisionesTests : IDisposable
         new(i, nombre, 1920, 1080, principal, 0, i, "AMD", descripcion);
 
     [Fact]
-    public void Los_monitores_virtuales_2_a_4_salen_con_su_nombre_y_no_como_pantallas_reales()
+    public void Solo_se_ofrece_el_monitor_virtual_1_y_sus_salidas_escondidas_no_salen_como_pantallas_reales()
     {
-        // Windows lista las cuatro salidas del controlador, conectadas o no: ninguna es una pantalla «real».
+        // Windows lista las cuatro salidas del controlador, conectadas o no: ninguna es una pantalla «real». Mientras dos teles
+        // a la vez estén en pausa se ofrece solo el virtual 1 (Mando.VirtualesALaVista).
         var todos = new[]
         {
             M(0, @"\\.\DISPLAY1", principal: true), M(1, @"\\.\DISPLAY2"),
@@ -410,20 +411,15 @@ public sealed class TransmisionesTests : IDisposable
 
         var p = Mando.ArmarPantallas(todos, virtuales, null);
 
+        Assert.Equal(1, Mando.VirtualesALaVista);
         Assert.True(p.HayVirtual);
-        Assert.Equal(6, p.Opciones.Count); // 2 reales + 4 virtuales, ninguna repetida
-        Assert.Equal(new[] { @"\\.\DISPLAY1", @"\\.\DISPLAY2", "virtual", "virtual2", "virtual3", "virtual4" }, p.Opciones.Select(o => o.Valor));
-        Assert.Equal(p.Opciones.Count, p.Opciones.Select(o => o.Valor).Distinct().Count());
+        Assert.Equal(new[] { @"\\.\DISPLAY1", @"\\.\DISPLAY2", "virtual" }, p.Opciones.Select(o => o.Valor));
         Assert.StartsWith("Monitor virtual (", p.Opciones[2].Texto);
-        Assert.StartsWith("Monitor virtual 2 (", p.Opciones[3].Texto);
-        Assert.StartsWith("Monitor virtual 4 (", p.Opciones[5].Texto);
         Assert.DoesNotContain(p.Opciones, o => o.Valor is { } v && virtuales.Any(x => x.Item2 == v)); // ni su nombre de Windows
         Assert.Equal(@"\\.\DISPLAY1", Assert.Single(p.Opciones, o => o.Elegida).Valor);
 
-        // El virtual 3 elegido.
-        Assert.Equal("virtual3", Assert.Single(Mando.ArmarPantallas(todos, virtuales, "virtual3").Opciones, o => o.Elegida).Valor);
-        // El 4 no está instalado (solo hay 2): se cae a la principal, como un monitor desenchufado.
-        Assert.Equal(@"\\.\DISPLAY1", Assert.Single(Mando.ArmarPantallas(todos[..4], virtuales[..2], "virtual4").Opciones, o => o.Elegida).Valor);
+        // Guardado el virtual 3 (de antes): se propone el 1.
+        Assert.Equal("virtual", Assert.Single(Mando.ArmarPantallas(todos, virtuales, "virtual3").Opciones, o => o.Elegida).Valor);
     }
 
     [Fact]
