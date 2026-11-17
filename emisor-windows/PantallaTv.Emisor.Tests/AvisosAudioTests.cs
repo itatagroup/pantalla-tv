@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Drawing;
 using System.Net;
 using System.Text;
@@ -277,6 +277,7 @@ public sealed class AvisosAudioMandoTests : IDisposable
     private readonly string _carpeta = Directory.CreateTempSubdirectory("pantallatv-avisos-mando-").FullName;
     private readonly List<string> _globos = [];
     private readonly List<EmisionFalsa> _falsas = [];
+    private long _ms, _paso = 10_000; // por defecto cada aviso sale «mucho después» del anterior
     private const string Edge = @"C:\Edge\msedge.exe";
     private const string Vlc = @"C:\VLC\vlc.exe";
     private static readonly Receptor Sala = new("Sala", IPAddress.Parse("10.0.0.20"), Protocolo.PuertoTcp);
@@ -293,6 +294,7 @@ public sealed class AvisosAudioMandoTests : IDisposable
             FabricaEmision = () => { var e = new EmisionFalsa(); _falsas.Add(e); return e; },
             Preparador = (nombre, _, _) => new Monitores.Preparado(new Monitor(0, nombre ?? @"\\.\DISPLAYPRINCIPAL", 1920, 1080, true, 0, 0, "AMD"), () => { }),
             Avisos = new AvisosAudio(ruta => ruta == Edge ? "Microsoft Edge" : ruta == Vlc ? "VLC media player" : null),
+            Reloj = () => _ms += _paso,
         };
         mando.Aviso += (texto, icono) => { Assert.Equal(System.Windows.Forms.ToolTipIcon.Info, icono); _globos.Add(texto); };
         Assert.True(mando.Iniciar(Sala, "virtual"));
@@ -370,6 +372,27 @@ public sealed class AvisosAudioMandoTests : IDisposable
         Assert.Equal(2, _globos.Count);
         Assert.EndsWith("VLC media player también tiene ventanas en tu pantalla: su sonido sale por la tele.", _globos[^1]);
         Assert.Contains("Microsoft Edge y VLC media player también tienen ventanas", mando.NotaFila(t));
+        mando.Detener();
+    }
+
+    [Fact]
+    public async Task Avisos_de_la_misma_mirada_se_juntan_para_no_taparse()
+    {
+        var (mando, _, e) = await Empezar();
+        using var _ = mando;
+        _paso = 100; // llegan juntos, como en una misma mirada
+
+        e.Audio(TipoCambioAudio.PasaronATele, Edge);
+        e.Audio(TipoCambioAudio.TambienEnPc, Edge);
+
+        const string juntos = "Microsoft Edge pasó a la tele: pausa y vuelve a reproducir para que suene allá. "
+                              + "Microsoft Edge también tiene ventanas en tu pantalla: su sonido sale por la tele.";
+        Assert.Equal(juntos, e.AvisosATele[^1]);
+        Assert.Equal("Sala (10.0.0.20): " + juntos, _globos[^1]);
+
+        _paso = Mando.MsParaJuntarAvisos; // ya pasó el plazo: sale solo
+        e.Audio(TipoCambioAudio.VolvieronAlPc, Edge);
+        Assert.Equal("Microsoft Edge volvió a tu pantalla: pausa y vuelve a reproducir para que suene en el PC.", e.AvisosATele[^1]);
         mando.Detener();
     }
 

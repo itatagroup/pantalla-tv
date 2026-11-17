@@ -1,4 +1,4 @@
-namespace PantallaTv.Emisor;
+﻿namespace PantallaTv.Emisor;
 
 /// <summary>
 /// Una de las transmisiones en curso (hasta <see cref="Mando.MaxTransmisiones"/>): a qué TV va, qué pantalla lleva, si lleva
@@ -33,6 +33,9 @@ internal sealed class Transmision
 
     /// <summary>Los de <see cref="TambienEnPc"/> de los que ya se avisó en esta transmisión (una sola vez por programa).</summary>
     internal HashSet<string> TambienEnPcAvisados { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>El último aviso del sonido y cuándo salió (<see cref="Mando.Reloj"/>), para sumarle el que llegue enseguida.</summary>
+    internal (string Texto, long Ms)? UltimoAvisoAudio { get; set; }
 
     internal CancellationTokenSource? Cancelar { get; set; }
     internal Task? Tarea { get; set; }

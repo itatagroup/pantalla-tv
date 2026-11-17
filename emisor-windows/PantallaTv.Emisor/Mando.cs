@@ -527,6 +527,12 @@ internal sealed partial class Mando : IDisposable
     /// <summary>Los textos de los avisos del sonido de la tele y los nombres de los programas (con su caché).</summary>
     internal AvisosAudio Avisos { get; init; } = new();
 
+    /// <summary>Reloj en milisegundos para juntar avisos seguidos (las pruebas lo fijan).</summary>
+    internal Func<long> Reloj { get; init; } = () => Environment.TickCount64;
+
+    /// <summary>Un aviso del sonido que llega antes de esto tras el anterior se le suma (vienen de la misma mirada).</summary>
+    internal const long MsParaJuntarAvisos = 1500;
+
     public bool Iniciar(Receptor receptor, string? pantalla)
     {
         if (MotivoNoPuedeIniciar(receptor, pantalla) is { } motivo)
@@ -843,6 +849,11 @@ internal sealed partial class Mando : IDisposable
                 break;
         }
         if (texto is null) return;
+        // Los cambios de una misma mirada llegan juntos («pasó a la tele» y «también…»): en la tele y en el globo uno nuevo
+        // reemplaza al anterior, así que el que llega enseguida se suma al anterior en vez de taparlo.
+        var ahora = Reloj();
+        if (t.UltimoAvisoAudio is { } previo && ahora - previo.Ms < MsParaJuntarAvisos) texto = previo.Texto + " " + texto;
+        t.UltimoAvisoAudio = (texto, ahora);
         Aviso?.Invoke(ConTv(t, texto), ToolTipIcon.Info);
         t.Emision?.AvisarATele(texto);
     }
