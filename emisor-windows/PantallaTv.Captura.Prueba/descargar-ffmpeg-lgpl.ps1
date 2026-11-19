@@ -1,4 +1,4 @@
-# Descarga la compilación LGPL compartida de FFmpeg que usa el candidato «libavcodec» del prototipo N1.
+﻿# Descarga la compilación LGPL compartida de FFmpeg que usa el candidato «libavcodec» del prototipo N1.
 # Fuente: FFmpeg-Builds (antes BtbN/FFmpeg-Builds), etiqueta fija del 10/11/2026, variante «win64-lgpl-shared-9.0».
 # Licencia de las DLL: LGPL-2.1 o posterior (ver LICENSE.txt dentro del zip). No se usan en el emisor todavía.
 #   powershell -File descargar-ffmpeg-lgpl.ps1

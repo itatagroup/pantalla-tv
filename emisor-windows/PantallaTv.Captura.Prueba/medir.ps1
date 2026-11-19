@@ -1,4 +1,4 @@
-# Mide una combinación del prototipo N1 con el mismo contenido que herramientas/medir-captura.ps1.
+﻿# Mide una combinación del prototipo N1 con el mismo contenido que herramientas/medir-captura.ps1.
 #   powershell -File medir.ps1 -Monitor virtual -Codificador mf -Tasa vbr -Seg 25
 #   powershell -File medir.ps1 -Monitor 0 -Codificador av -Quieto
 # Con movimiento pone encima del monitor una ventana ffplay (testsrc2 1920×1080 a 60 fps); con -Quieto pone
